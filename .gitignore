@@ -1,0 +1,73 @@
+# ============================================
+# COINUP - Git Ignore File
+# ============================================
+
+# ENV & Secrets
+.env
+.env.local
+.env.production
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temp Files
+*.tmp
+*.bak
+*.cache
+
+# Uploads temporários
+uploads/
+
+# Test files locais
+test-*.php
+debug-*.php
+verify-*.php
+check_*.php
+
+# Database exports
+*.sql.backup
+dumps/
+
+# ZIP files de backup
+src.zip
+*.zip.bak
+
+# Composer/Node
+/vendor/
+node_modules/
+composer.lock
+package-lock.json
+
+# Documentação de desenvolvimento local
+WP1_RESUMO.md
+WP2_RESUMO.md
+WP2_INFRA_FIX.md
+CORRECAO_SENHAS.md
+gerar_roterio_testes.ps1
+ROTEIRO_TESTES_WP1_WP2.docx
+testes.pdf
+
+# Ferramentas de deploy local
+deploy.bat
+deploy.sh
+SSH_UPLOAD_GUIDE.md
+README_DEPLOY.md
+
+# Agents config
+.agents/
+.qwen/
+.claude/

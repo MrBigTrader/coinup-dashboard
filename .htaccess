@@ -1,0 +1,110 @@
+# ============================================
+# CoinUp Dashboard - .htaccess da Raiz
+# ============================================
+# Este arquivo protege o diretório raiz do projeto
+# e garante que apenas a pasta public/ seja acessível
+# ============================================
+
+# Ativar reescrita de URL
+RewriteEngine On
+
+# ============================================
+# REDIRECIONAR TUDO PARA /public/
+# ============================================
+
+# Se a requisição não for para a pasta public/, redirecionar
+RewriteCond %{REQUEST_URI} !^/main/public/
+RewriteCond %{REQUEST_URI} !^/main/assets/
+RewriteRule ^(.*)$ /main/public/$1 [L,R=301]
+
+# ============================================
+# SEGURANÇA - BLOQUEAR ACESSO DIRETO
+# ============================================
+
+# Bloquear acesso a arquivos sensíveis na raiz
+<FilesMatch "^\.env">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "^\.env\.example">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "^\.git">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "^README">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "^deploy\.sh$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<FilesMatch "\.(sql|log|ini|sh|md)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ============================================
+# PROTEGER DIRETÓRIOS SENSÍVEIS
+# ============================================
+
+# Bloquear acesso direto aos diretórios
+<IfModule mod_rewrite.c>
+    RewriteRule ^config/ - [F,L]
+    RewriteRule ^database/ - [F,L]
+    RewriteRule ^src/ - [F,L]
+    RewriteRule ^workers/ - [F,L]
+    RewriteRule ^logs/ - [F,L]
+</IfModule>
+
+# ============================================
+# HEADERS DE SEGURANÇA
+# ============================================
+
+<IfModule mod_headers.c>
+    # Prevenir clickjacking
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # Prevenir MIME-type sniffing
+    Header always set X-Content-Type-Options "nosniff"
+
+    # XSS Protection
+    Header always set X-XSS-Protection "1; mode=block"
+
+    # Referrer Policy
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Content Security Policy (ajuste conforme necessário)
+    # Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';"
+</IfModule>
+
+# ============================================
+# DESATIVAR LISTAGEM DE DIRETÓRIO
+# ============================================
+
+Options -Indexes
+
+# ============================================
+# PHP SETTINGS (se aplicável)
+# ============================================
+
+<IfModule mod_php7.c>
+    # Desativar display de erros em produção
+    php_flag display_errors Off
+    php_flag log_errors On
+    php_value error_log /home2/coinup66/public_html/main/logs/php_errors.log
+
+    # Aumentar limites para workers
+    php_value max_execution_time 300
+    php_value memory_limit 256M
+    php_value upload_max_filesize 10M
+    php_value post_max_size 10M
+</IfModule>
