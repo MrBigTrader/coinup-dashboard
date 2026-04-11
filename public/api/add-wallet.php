@@ -11,22 +11,11 @@ $base_path = dirname(dirname(__DIR__));
 
 require_once $base_path . '/config/database.php';
 require_once $base_path . '/config/auth.php';
+require_once $base_path . '/config/middleware.php';
 
-// Verificar autenticação
-if (session_status() === PHP_SESSION_NONE) {
-    session_name('COINUPSESS');
-    session_start();
-}
-
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-    echo json_encode(['success' => false, 'message' => 'Não autenticado']);
-    exit;
-}
+Middleware::requireAuth();
 
 if ($_SESSION['user_role'] !== 'client') {
-    echo json_encode(['success' => false, 'message' => 'Acesso negado']);
-    exit;
-}
 
 // Receber dados
 $input = json_decode(file_get_contents('php://input'), true);

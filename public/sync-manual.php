@@ -11,6 +11,7 @@ ini_set('log_errors', 1);
 
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/auth.php';
+require_once dirname(__DIR__) . '/config/middleware.php';
 
 require_once dirname(__DIR__) . '/src/Utils/WeiConverter.php';
 require_once dirname(__DIR__) . '/src/Blockchain/NetworkConfig.php';
@@ -18,11 +19,9 @@ require_once dirname(__DIR__) . '/src/Blockchain/AlchemyClient.php';
 require_once dirname(__DIR__) . '/src/Services/TransactionParser.php';
 require_once dirname(__DIR__) . '/src/Services/SyncService.php';
 
-// Requer autenticação e admin
-if (session_status() === PHP_SESSION_NONE) {
-    session_name('COINUPSESS');
-    session_start();
-}
+// Autenticação via Middleware
+Middleware::requireAuth();
+Middleware::requireAdmin();
 
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || $_SESSION['user_role'] !== 'admin') {
     header('Location: /main/public/login.php');
