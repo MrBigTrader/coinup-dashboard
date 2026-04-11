@@ -54,7 +54,6 @@ package-lock.json
 
 # Documentação de desenvolvimento local
 WP1_RESUMO.md
-WP2_RESUMO.md
 WP2_INFRA_FIX.md
 CORRECAO_SENHAS.md
 gerar_roterio_testes.ps1

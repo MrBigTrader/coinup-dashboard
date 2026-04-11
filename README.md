@@ -341,11 +341,11 @@ Configure em **Cron Jobs** no cPanel:
 
 ## 📝 Work Packages (WP)
 
-| WP | Status | Descrição | Data | Docs |
-|----|--------|-----------|------|------|
+| **WP** | Status | Descrição | Data | Docs |
+|--------|--------|-----------|------|------|
 | **WP1** | ✅ **Concluído** | **Fundação e Infraestrutura** | 03/04/2026 | `WP1_RESUMO.md` |
-| WP2 | 🟡 **Em Progresso** | Engine de Sincronização Blockchain | 06/04/2026 | - |
-| WP3 | ⚪ Pendente | Engine de Preços e Benchmarks | - | - |
+| **WP2** | ✅ **Concluído** | **Engine de Sincronização Blockchain** | 11/04/2026 | `WP2_RESUMO.md` |
+| **WP3** | 🟡 **Em Progresso** | **Engine de Preços e Benchmarks** | 11/04/2026 | - |
 | WP4 | ⚪ Pendente | Dashboard do Cliente (avançado) | - | - |
 | WP5 | ⚪ Pendente | Painel do Administrador (avançado) | - | - |
 | WP6 | ⚪ Pendente | Finalização, Segurança e Deploy | - | - |
