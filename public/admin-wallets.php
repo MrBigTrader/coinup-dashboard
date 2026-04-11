@@ -1,22 +1,22 @@
 <?php
 /**
  * Admin Wallets - Listagem de Carteiras
- * Revisão: 2026-04-09-Fix
+ * Revisão: 2026-04-11-Fix
  * Descrição: Listagem de carteiras para o administrador.
  */
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/auth.php';
+require_once dirname(__DIR__) . '/config/middleware.php';
 
-if (!isset($_SESSION['logged_in']) || $_SESSION['user_role'] !== 'admin') {
-    header('Location: login.php');
-    exit;
-}
+// Iniciar sessão e verificar autenticação
+Middleware::requireAuth();
+Middleware::requireAdmin();
 
 $db = Database::getInstance()->getConnection();
 $stmt = $db->query("
-    SELECT w.*, u.name as user_name 
-    FROM wallets w 
-    JOIN users u ON w.user_id = u.id 
+    SELECT w.*, u.name as user_name
+    FROM wallets w
+    JOIN users u ON w.user_id = u.id
     ORDER BY w.created_at DESC
 ");
 $wallets = $stmt->fetchAll();
