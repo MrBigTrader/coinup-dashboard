@@ -6,13 +6,9 @@
  */
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/auth.php';
+require_once dirname(__DIR__) . '/config/middleware.php';
 
-// Proteção: Apenas logados (Admin ou Client)
-// Removida restrição específica de role para evitar redirecionamentos indevidos
-if (!isset($_SESSION['logged_in'])) {
-    header('Location: login.php');
-    exit;
-}
+Middleware::requireAuth();
 
 $userName = $_SESSION['user_name'] ?? 'Usuário';
 $userRole = $_SESSION['user_role'] ?? 'client';
