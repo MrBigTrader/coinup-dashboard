@@ -1,0 +1,31 @@
+# ============================================
+# COINUP - cPanel Deploy Configuration
+# ============================================
+# Este arquivo define as tasks de deploy automático
+# Documentação: https://docs.cpanel.net/cpanel/files/git-version-control/
+
+deployment:
+  tasks:
+    # 1. Criar diretórios necessários
+    - export DEPLOYPATH=/home2/coinup66/public_html/main/
+    - /bin/mkdir -p ${DEPLOYPATH}logs
+
+    # 2. Copiar arquivos do repositório
+    - /bin/cp -R * ${DEPLOYPATH}
+
+    # 3. Copiar arquivos ocultos necessários
+    - /bin/cp .htaccess ${DEPLOYPATH}
+    - /bin/cp .env.example ${DEPLOYPATH}
+
+    # 4. Garantir permissões seguras
+    - /bin/chmod 755 ${DEPLOYPATH}public
+    - /bin/chmod 700 ${DEPLOYPATH}config
+    - /bin/chmod 700 ${DEPLOYPATH}logs
+    - /bin/chmod 644 ${DEPLOYPATH}public/*.php
+    - /bin/chmod 644 ${DEPLOYPATH}workers/*.php
+
+    # 5. Verificar se .env existe (NÃO sobrescrever)
+    - /bin/test -f ${DEPLOYPATH}.env || /bin/cp ${DEPLOYPATH}.env.example ${DEPLOYPATH}.env
+
+    # 6. Executar migrations pendentes (se houver)
+    - /bin/test -d ${DEPLOYPATH}database/migrations && echo "Migrations disponíveis. Execute manualmente via SSH se necessário."

@@ -81,8 +81,98 @@ main/
 - HostGator Shared Hosting (ou similar com PHP + MySQL)
 - Acesso SSH e cPanel
 - Contas nas APIs: Alchemy, CoinGecko, Alpha Vantage
+- Git configurado localmente e repositório remoto (GitHub/GitLab)
 
-### Passo a Passo
+### Método 1: Deploy via Git cPanel (Recomendado)
+
+Este método utiliza o **Git Version Control** nativo do cPanel para deploy automatizado.
+
+#### 1. Configurar Repositório Remoto (Local)
+
+```powershell
+cd C:\projetos\main
+
+# Adicionar remoto (substitua com sua URL real)
+git remote add origin https://github.com/seu-usuario/coinup-dashboard.git
+
+# Push inicial
+git push -u origin master
+```
+
+#### 2. Clonar no cPanel
+
+1. Acesse o cPanel: `https://coinup.com.br:2083`
+2. Vá em **Git Version Control** (seção Files)
+3. Clique em **Create** e marque **Clone a Repository**
+4. Preencha:
+   - **Clone URL:** `https://github.com/seu-usuario/coinup-dashboard.git`
+   - **Repository Path:** `/home2/coinup66/coinup-dashboard`
+   - **Repository Name:** `coinup-dashboard`
+5. Clique em **Create**
+
+#### 3. Executar Setup Pós-Deploy
+
+Conecte via SSH e execute o script de setup:
+
+```bash
+ssh coinup66@coinup.com.br
+bash /home2/coinup66/coinup-dashboard/scripts/setup-pos-deploy.sh
+```
+
+O script vai automaticamente:
+- ✅ Criar symlink/copiar arquivos para `public_html/main/`
+- ✅ Configurar `.env` a partir do exemplo
+- ✅ Criar diretório de logs
+- ✅ Configurar permissões de segurança
+- ✅ Verificar estrutura do projeto
+
+#### 4. Configurar .env
+
+Edite o arquivo `.env` gerado:
+
+```bash
+nano /home2/coinup66/public_html/main/.env
+```
+
+Preencha as variáveis conforme `.env.example`.
+
+#### 5. Executar Migrations
+
+No phpMyAdmin ou via SSH:
+
+```bash
+mysql -u coinup66_usuario -p -h localhost coinup66_coinup < /home2/coinup66/public_html/main/database/migrations/001_initial_schema.sql
+```
+
+#### 6. Deploy de Atualizações
+
+Após fazer alterações locais:
+
+```powershell
+# Commit e push
+git add .
+git commit -m "Descrição da mudança"
+git push origin master
+```
+
+No cPanel:
+1. Vá em **Git Version Control** → **Manage** → **Pull or Deploy**
+2. Clique em **Update from Remote** (puxa alterações)
+3. Clique em **Deploy HEAD Commit** (executa `.cpanel.yml`)
+
+Ou via SSH:
+
+```bash
+ssh coinup66@coinup.com.br
+cd /home2/coinup66/coinup-dashboard
+git pull origin master
+```
+
+---
+
+### Método 2: Deploy Manual (Legacy)
+
+> ⚠️ Este método é legado. Prefira o deploy via Git cPanel.
 
 #### 1. Banco de Dados (cPanel)
 
