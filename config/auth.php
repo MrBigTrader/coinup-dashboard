@@ -25,7 +25,7 @@ class Auth {
                 ini_set('session.cookie_httponly', 1);
                 ini_set('session.use_only_cookies', 1);
                 ini_set('session.cookie_secure', 1); // Apenas HTTPS em produção
-                ini_set('session.cookie_samesite', 'Strict');
+                ini_set('session.cookie_samesite', 'Lax'); // Lax permite redirecionamentos internos
             }
 
             session_name('COINUPSESS');
