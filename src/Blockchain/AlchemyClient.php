@@ -283,10 +283,16 @@ class AlchemyClient {
 
     /**
      * Busca TODOS os tokens ERC-20 de uma carteira (Alchemy Token API)
-     * Retorna: array de ['tokenAddress' => '0x...', 'balance' => 'raw_wei', 'symbol' => 'USDT', ...]
+     * Usa type: "erc20" para retornar todos os tokens detectados.
+     * Retorna: array de ['contractAddress' => '0x...', 'tokenBalance' => 'raw_wei', ...]
      */
     public function getTokenBalances(string $address): array {
-        $payload = ['jsonrpc' => '2.0', 'method' => 'alchemy_getTokenBalances', 'params' => [$address], 'id' => 1];
+        $payload = [
+            'jsonrpc' => '2.0',
+            'method' => 'alchemy_getTokenBalances',
+            'params' => [$address, ['type' => 'erc20']],
+            'id' => 1
+        ];
         $result = $this->request($payload);
         return $result['result']['tokenBalances'] ?? [];
     }

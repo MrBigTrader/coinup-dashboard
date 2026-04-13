@@ -97,7 +97,7 @@ foreach ($wallets as $wallet) {
         
         foreach ($tokenBalances as $tokenData) {
             $tokenAddress = $tokenData['contractAddress'] ?? null;
-            $balanceHex = $tokenData['balance'] ?? '0x0';
+            $balanceHex = $tokenData['tokenBalance'] ?? '0x0'; // Corrigido: tokenBalance (não balance)
             $balanceWei = hexdec($balanceHex);
             
             if ($balanceWei === 0) continue; // Ignorar tokens com saldo 0
