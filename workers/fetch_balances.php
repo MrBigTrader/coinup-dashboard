@@ -141,19 +141,19 @@ foreach ($wallets as $wallet) {
                 continue;
             }
             
-            // Filtrar tokens spam: símbolo deve ser apenas letras e números (2-8 chars)
-            if (!preg_match('/^[A-Za-z0-9]{2,8}$/', $symbol)) {
+            // Filtrar tokens spam: símbolo deve ser apenas letras e números (3-8 chars)
+            if (!preg_match('/^[A-Za-z0-9]{3,8}$/', $symbol)) {
                 continue;
             }
             
-            // Ignorar tokens que parecem spam/scam (nomes longos, URLs, etc.)
+            // Ignorar tokens que parecem spam/scam (nomes com URLs, claims, etc.)
             if (stripos($name, 'http') !== false || stripos($name, 't.me') !== false || stripos($name, 'telegram') !== false || stripos($name, 'claim') !== false || stripos($name, 'visit') !== false || stripos($name, 'soon') !== false) {
                 continue;
             }
             
-            // Lista negra de tokens scam (XAUT, ASMLon, SLVon, TSMon são legítimos - removidos)
-            $spamSymbols = ['TGE','PEPA','COCO','BUC','JUSDC','BTW','DLM','FACE','GOON','PF','SWF','CHOG','ELSA','ZAMA','GPT5','KIMI','DOWNALD','CMK','CRC','OBX','WKEYDAO','WLSNBCK','ZPT','TYB','ANOME','ABY','AEM','AFG','VSP','DEUS','B2','AGU','BZW','ACU','BTCF','CBTC','VEREM','NVDA','OPENAI','GITHUB','GPT','AI','CZ','LMC','NB','CGX','TAPZI','USDF'];
-            if (in_array(strtoupper($symbol), $spamSymbols)) {
+            // Blacklist de tokens scam (case-insensitive check)
+            $spamSymbols = ['TGE','PEPA','COCO','BUC','JUSDC','BTW','DLM','FACE','GOON','PF','SWF','CHOG','ELSA','ZAMA','GPT5','KIMI','DOWNALD','CMK','CRC','OBX','WKEYDAO','WLSNBCK','ZPT','TYB','ANOME','ABY','AEM','AFG','VSP','DEUS','B2','AGU','BZW','ACU','BTCF','CBTC','VEREM','NVDA','OPENAI','GITHUB','GPT','LMC','CGX','TAPZI','USDF','EURC','AI'];
+            if (in_array(strtoupper(trim($symbol)), $spamSymbols)) {
                 continue;
             }
             
