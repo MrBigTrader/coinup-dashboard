@@ -151,8 +151,8 @@ foreach ($wallets as $wallet) {
                 continue;
             }
             
-            // Lista negra expandida de tokens scam
-            $spamSymbols = ['TGE','PEPA','COCO','BUC','JUSDC','BTW','DLM','FACE','GOON','PF','SWF','CHOG','ELSA','ZAMA','GPT5','KIMI','DOWNALD','CMK','CRC','OBX','WKEYDAO','WLSNBCK','ZPT','TYB','ANOME','ABY','AEM','AFG','VSP','DEUS','B2','AGU','BZW','ACU','BTCF','CBTC','VEREM','EUROC','SLVON','TSMON','ASMLON','XAUT','NVDA','OPENAI','GITHUB','GPT','AI','CZ','B2'];
+            // Lista negra de tokens scam (XAUT, ASMLon, SLVon, TSMon são legítimos - removidos)
+            $spamSymbols = ['TGE','PEPA','COCO','BUC','JUSDC','BTW','DLM','FACE','GOON','PF','SWF','CHOG','ELSA','ZAMA','GPT5','KIMI','DOWNALD','CMK','CRC','OBX','WKEYDAO','WLSNBCK','ZPT','TYB','ANOME','ABY','AEM','AFG','VSP','DEUS','B2','AGU','BZW','ACU','BTCF','CBTC','VEREM','NVDA','OPENAI','GITHUB','GPT','AI','CZ','LMC','NB','CGX','TAPZI','USDF'];
             if (in_array(strtoupper($symbol), $spamSymbols)) {
                 continue;
             }
