@@ -290,47 +290,5 @@ class AlchemyClient {
         $result = $this->request($payload);
         return $result['result']['tokenBalances'] ?? [];
     }
-
-    /**
-     * Busca informações de um token (nome, símbolo, decimais)
-     */
-    public function getTokenInfo(string $tokenAddress): array {
-        $info = [];
-        
-        // Buscar symbol
-        $payload = [
-            'jsonrpc' => '2.0', 'method' => 'eth_call',
-            'params' => [['to' => $tokenAddress, 'data' => '0x95d89b41'], 'latest'],
-            'id' => 1
-        ];
-        $result = $this->request($payload);
-        if (isset($result['result'])) {
-            $info['symbol'] = $this->decodeString($result['result']);
-        }
-
-        // Buscar name
-        $payload = [
-            'jsonrpc' => '2.0', 'method' => 'eth_call',
-            'params' => [['to' => $tokenAddress, 'data' => '0x06fdde03'], 'latest'],
-            'id' => 2
-        ];
-        $result = $this->request($payload);
-        if (isset($result['result'])) {
-            $info['name'] = $this->decodeString($result['result']);
-        }
-
-        // Buscar decimals
-        $payload = [
-            'jsonrpc' => '2.0', 'method' => 'eth_call',
-            'params' => [['to' => $tokenAddress, 'data' => '0x313ce567'], 'latest'],
-            'id' => 3
-        ];
-        $result = $this->request($payload);
-        if (isset($result['result'])) {
-            $info['decimals'] = hexdec($result['result']);
-        }
-
-        return $info;
-    }
 }
 ?>
