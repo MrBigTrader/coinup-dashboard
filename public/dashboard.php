@@ -38,31 +38,14 @@ try {
     $db = Database::getInstance()->getConnection();
     $user_id = $auth->getCurrentUserId();
 
-    // Buscar total de patrimônio: soma de (saldo * preço) para cada token com saldo positivo
-    // Saldo = soma de valores onde wallet é destino - soma onde wallet é origem
+    // Buscar total de patrimônio: soma de wallet_balances (saldo real da blockchain)
     $stmt = $db->prepare("
         SELECT
             (SELECT COUNT(DISTINCT id) FROM wallets WHERE user_id = ? AND is_active = 1) as wallet_count,
-            COALESCE(SUM(token_balance.current_balance * tp.price_usd), 0) as total_value_usd
-        FROM (
-            SELECT
-                wallet_id,
-                token_symbol,
-                SUM(
-                    CASE
-                        WHEN LOWER(to_address) = LOWER(address) THEN value
-                        WHEN LOWER(from_address) = LOWER(address) THEN -value
-                        ELSE 0
-                    END
-                ) as current_balance
-            FROM transactions_cache tc
-            JOIN wallets w ON tc.wallet_id = w.id
-            WHERE w.user_id = ? AND w.is_active = 1
-            GROUP BY wallet_id, token_symbol
-            HAVING current_balance > 0
-        ) token_balance
-        JOIN wallets w ON token_balance.wallet_id = w.id
-        LEFT JOIN token_prices tp ON token_balance.token_symbol = tp.token_symbol
+            COALESCE(SUM(wb.balance_usd), 0) as total_value_usd
+        FROM wallets w
+        JOIN wallet_balances wb ON w.id = wb.wallet_id
+        WHERE w.user_id = ? AND w.is_active = 1
     ");
     $stmt->execute([$user_id, $user_id]);
     $summary = $stmt->fetch();

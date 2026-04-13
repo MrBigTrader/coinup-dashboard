@@ -271,5 +271,66 @@ class AlchemyClient {
         $blocks = array_filter([$native, $token], fn($b) => $b !== null);
         return !empty($blocks) ? min($blocks) : 0;
     }
+
+    /**
+     * Busca saldo nativo (ETH, BNB, etc.) da carteira
+     */
+    public function getNativeBalance(string $address): string {
+        $payload = ['jsonrpc' => '2.0', 'method' => 'eth_getBalance', 'params' => [$address, 'latest'], 'id' => 1];
+        $result = $this->request($payload);
+        return $result['result'] ?? '0x0';
+    }
+
+    /**
+     * Busca TODOS os tokens ERC-20 de uma carteira (Alchemy Token API)
+     * Retorna: array de ['tokenAddress' => '0x...', 'balance' => 'raw_wei', 'symbol' => 'USDT', ...]
+     */
+    public function getTokenBalances(string $address): array {
+        $payload = ['jsonrpc' => '2.0', 'method' => 'alchemy_getTokenBalances', 'params' => [$address], 'id' => 1];
+        $result = $this->request($payload);
+        return $result['result']['tokenBalances'] ?? [];
+    }
+
+    /**
+     * Busca informações de um token (nome, símbolo, decimais)
+     */
+    public function getTokenInfo(string $tokenAddress): array {
+        $info = [];
+        
+        // Buscar symbol
+        $payload = [
+            'jsonrpc' => '2.0', 'method' => 'eth_call',
+            'params' => [['to' => $tokenAddress, 'data' => '0x95d89b41'], 'latest'],
+            'id' => 1
+        ];
+        $result = $this->request($payload);
+        if (isset($result['result'])) {
+            $info['symbol'] = $this->decodeString($result['result']);
+        }
+
+        // Buscar name
+        $payload = [
+            'jsonrpc' => '2.0', 'method' => 'eth_call',
+            'params' => [['to' => $tokenAddress, 'data' => '0x06fdde03'], 'latest'],
+            'id' => 2
+        ];
+        $result = $this->request($payload);
+        if (isset($result['result'])) {
+            $info['name'] = $this->decodeString($result['result']);
+        }
+
+        // Buscar decimals
+        $payload = [
+            'jsonrpc' => '2.0', 'method' => 'eth_call',
+            'params' => [['to' => $tokenAddress, 'data' => '0x313ce567'], 'latest'],
+            'id' => 3
+        ];
+        $result = $this->request($payload);
+        if (isset($result['result'])) {
+            $info['decimals'] = hexdec($result['result']);
+        }
+
+        return $info;
+    }
 }
 ?>
