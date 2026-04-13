@@ -29,6 +29,9 @@
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/src/Utils/WeiConverter.php';
 
+// Inicializar Database para carregar .env
+Database::getInstance();
+
 // Configurar para rodar apenas em CLI
 if (php_sapi_name() !== 'cli') {
     http_response_code(403);
@@ -44,7 +47,7 @@ $dry_run = in_array('--dry-run', $_SERVER['argv']);
 // ============================================================
 
 $coingecko_api_key = $_ENV['COINGECKO_API_KEY'] ?? getenv('COINGECKO_API_KEY');
-$coingecko_base_url = 'https://pro-api.coingecko.com/api/v3';
+$coingecko_base_url = 'https://api.coingecko.com/api/v3'; // API gratuita (Demo)
 
 if (empty($coingecko_api_key)) {
     echo "[ERRO] COINGECKO_API_KEY não configurada no .env\n";
@@ -434,7 +437,7 @@ function fetch_batch_prices($base_url, $api_key, $token_ids) {
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_HTTPHEADER => [
                 'Accept: application/json',
-                'x-cg-pro-api-key: ' . $api_key
+                'x-cg-demo-api-key: ' . $api_key  // API gratuita (Demo)
             ],
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_ENCODING => ''
