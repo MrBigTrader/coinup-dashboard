@@ -151,8 +151,8 @@ foreach ($wallets as $wallet) {
                 continue;
             }
             
-            // Blacklist de tokens scam (case-insensitive check)
-            $spamSymbols = ['TGE','PEPA','COCO','BUC','JUSDC','BTW','DLM','FACE','GOON','PF','SWF','CHOG','ELSA','ZAMA','GPT5','KIMI','DOWNALD','CMK','CRC','OBX','WKEYDAO','WLSNBCK','ZPT','TYB','ANOME','ABY','AEM','AFG','VSP','DEUS','B2','AGU','BZW','ACU','BTCF','CBTC','VEREM','NVDA','OPENAI','GITHUB','GPT','LMC','CGX','TAPZI','USDF','EURC','AI'];
+            // Blacklist de tokens scam (EURC removido - stablecoin legítima)
+            $spamSymbols = ['TGE','PEPA','COCO','BUC','JUSDC','BTW','DLM','FACE','GOON','PF','SWF','CHOG','ELSA','ZAMA','GPT5','KIMI','DOWNALD','CMK','CRC','OBX','WKEYDAO','WLSNBCK','ZPT','TYB','ANOME','ABY','AEM','AFG','VSP','DEUS','B2','AGU','BZW','ACU','BTCF','CBTC','VEREM','NVDA','OPENAI','GITHUB','GPT','LMC','CGX','TAPZI','USDF','AI'];
             if (in_array(strtoupper(trim($symbol)), $spamSymbols)) {
                 continue;
             }
