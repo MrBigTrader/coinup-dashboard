@@ -97,17 +97,31 @@ foreach ($wallets as $wallet) {
         
         foreach ($tokenBalances as $tokenData) {
             $tokenAddress = $tokenData['contractAddress'] ?? null;
-            $balanceHex = $tokenData['tokenBalance'] ?? '0x0'; // Corrigido: tokenBalance (não balance)
-            $balanceWei = hexdec($balanceHex);
+            $balanceHex = $tokenData['tokenBalance'] ?? '0x0';
             
-            if ($balanceWei === 0) continue; // Ignorar tokens com saldo 0
+            // GMP para conversão precisa (evita float/scientific notation)
+            $balanceHexClean = ltrim(str_replace('0x', '', $balanceHex), '0');
+            if (empty($balanceHexClean)) continue;
+            $balanceWei = gmp_strval(gmp_init($balanceHexClean, 16));
             
-            // Buscar info do token (symbol, name, decimals)
-            // Para tokens conhecidos, usar cache para evitar chamadas extras
+            // Tokens conhecidos por rede (com decimais corretos)
             $knownTokens = [
+                // Ethereum Mainnet
                 '0xdac17f958d2ee523a2206206994597c13d831ec7' => ['symbol' => 'USDT', 'name' => 'Tether USD', 'decimals' => 6],
                 '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' => ['symbol' => 'USDC', 'name' => 'USD Coin', 'decimals' => 6],
                 '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599' => ['symbol' => 'WBTC', 'name' => 'Wrapped Bitcoin', 'decimals' => 8],
+                '0x514910771af9ca656af840dff83e8264ecf986ca' => ['symbol' => 'LINK', 'name' => 'Chainlink', 'decimals' => 18],
+                '0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9' => ['symbol' => 'AAVE', 'name' => 'Aave', 'decimals' => 18],
+                '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984' => ['symbol' => 'UNI', 'name' => 'Uniswap', 'decimals' => 18],
+                // BNB Chain
+                '0x55d398326f99059ff775485246999027b3197955' => ['symbol' => 'USDT', 'name' => 'Tether USD (BSC)', 'decimals' => 18],
+                '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d' => ['symbol' => 'USDC', 'name' => 'USD Coin (BSC)', 'decimals' => 18],
+                '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c' => ['symbol' => 'BTCB', 'name' => 'BTCB', 'decimals' => 18],
+                '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c' => ['symbol' => 'WBNB', 'name' => 'Wrapped BNB', 'decimals' => 18],
+                '0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82' => ['symbol' => 'CAKE', 'name' => 'PancakeSwap', 'decimals' => 18],
+                // Base
+                '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913' => ['symbol' => 'USDC', 'name' => 'USD Coin (Base)', 'decimals' => 6],
+                '0x4200000000000000000000000000000000000006' => ['symbol' => 'WETH', 'name' => 'Wrapped ETH (Base)', 'decimals' => 18],
             ];
             
             $lowerAddress = strtolower($tokenAddress);
@@ -118,17 +132,47 @@ foreach ($wallets as $wallet) {
                 $info = $alchemy->getTokenInfo($tokenAddress);
             }
             
-            $symbol = $info['symbol'] ?? 'UNKNOWN';
-            $name = $info['name'] ?? $symbol;
+            $symbol = $info['symbol'] ?? null;
+            $name = $info['name'] ?? '';
             $decimals = $info['decimals'] ?? 18;
             
-            // Se o símbolo for vazio ou "UNKNOWN", pular
-            if (empty($symbol) || $symbol === 'UNKNOWN') {
-                echo "  ⚠ Token sem símbolo ($tokenAddress) - pulando\n";
+            // Filtrar tokens sem símbolo válido
+            if (empty($symbol) || $symbol === 'UNKNOWN' || strlen($symbol) > 10) {
                 continue;
             }
             
+            // Filtrar tokens spam: símbolo deve ser apenas letras e números (2-8 chars)
+            if (!preg_match('/^[A-Za-z0-9]{2,8}$/', $symbol)) {
+                continue;
+            }
+            
+            // Ignorar tokens que parecem spam/scam (nomes longos, URLs, etc.)
+            if (stripos($name, 'http') !== false || stripos($name, 't.me') !== false || stripos($name, 'telegram') !== false || stripos($name, 'claim') !== false || stripos($name, 'visit') !== false || stripos($name, 'soon') !== false) {
+                continue;
+            }
+            
+            // Lista negra expandida de tokens scam
+            $spamSymbols = ['TGE','PEPA','COCO','BUC','JUSDC','BTW','DLM','FACE','GOON','PF','SWF','CHOG','ELSA','ZAMA','GPT5','KIMI','DOWNALD','CMK','CRC','OBX','WKEYDAO','WLSNBCK','ZPT','TYB','ANOME','ABY','AEM','AFG','VSP','DEUS','B2','AGU','BZW','ACU','BTCF','CBTC','VEREM','EUROC','SLVON','TSMON','ASMLON','XAUT','NVDA','OPENAI','GITHUB','GPT','AI','CZ','B2'];
+            if (in_array(strtoupper($symbol), $spamSymbols)) {
+                continue;
+            }
+            
+            // Ignorar tokens de dívida (empréstimos)
+            if (stripos($symbol, 'DEBT') !== false || stripos($symbol, 'VARIABLE') !== false) {
+                continue;
+            }
+            
+            // Converter balance corretamente com decimais do token
             $balance = WeiConverter::weiToDecimal($balanceWei, $decimals);
+            
+            // Ignorar balances absurdamente pequenas (< 0.000001)
+            if ($balance < 0.000001) continue;
+            
+            // Ignorar balances absurdamente grandes (> 1 bilhão - provável erro)
+            if ($balance > 1000000000) {
+                echo "  ⚠ Token ignorado (balance absurdo): $symbol = $balance\n";
+                continue;
+            }
             
             $stmt = $db->prepare("
                 INSERT INTO wallet_balances (wallet_id, token_address, token_symbol, token_name, balance, last_updated)
