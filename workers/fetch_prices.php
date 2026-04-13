@@ -302,7 +302,7 @@ foreach ($TOKENS as $coingecko_id => $token_info) {
                 market_cap_usd,
                 volume_24h,
                 source,
-                updated_at
+                last_updated
             ) VALUES (
                 :token_symbol,
                 :token_name,
@@ -322,7 +322,7 @@ foreach ($TOKENS as $coingecko_id => $token_info) {
                 market_cap_usd = VALUES(market_cap_usd),
                 volume_24h = VALUES(volume_24h),
                 source = VALUES(source),
-                updated_at = NOW()
+                last_updated = NOW()
         ");
 
         $stmt->execute([
