@@ -14,7 +14,7 @@
  * - Cache de último preço válido
  *
  * Uso via cron:
- * */15 * * * * php /home2/coinup66/public_html/main/workers/fetch_prices.php
+ * a cada 15 minutos: php /home2/coinup66/public_html/main/workers/fetch_prices.php
  *
  * Uso manual:
  * php workers/fetch_prices.php --verbose
@@ -43,7 +43,7 @@ $dry_run = in_array('--dry-run', $_SERVER['argv']);
 // CONFIGURAÇÃO
 // ============================================================
 
-$coingecko_api_key = getenv('COINGECKO_API_KEY');
+$coingecko_api_key = $_ENV['COINGECKO_API_KEY'] ?? getenv('COINGECKO_API_KEY');
 $coingecko_base_url = 'https://pro-api.coingecko.com/api/v3';
 
 if (empty($coingecko_api_key)) {

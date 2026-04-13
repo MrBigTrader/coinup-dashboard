@@ -19,28 +19,29 @@ class Database {
         if (!file_exists($envFile)) {
             throw new Exception('Arquivo .env não encontrado. Copie .env.example para .env e configure.');
         }
-        
+
         $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         foreach ($lines as $line) {
             if (strpos(trim($line), '#') === 0) continue;
             if (strpos($line, '=') === false) continue;
-            
+
             list($name, $value) = explode('=', $line, 2);
             $name = trim($name);
             $value = trim($value, '"\'');
-            
-            if (!getenv($name)) {
-                putenv("$name=$value");
-                $_ENV[$name] = $value;
-            }
+
+            // Compatível com CLI e Web
+            putenv("$name=$value");
+            $_ENV[$name] = $value;
+            $_SERVER[$name] = $value;
         }
     }
-    
+
     private function connect() {
-        $host = getenv('DB_HOST') ?: 'localhost';
-        $dbname = getenv('DB_NAME');
-        $user = getenv('DB_USER');
-        $pass = getenv('DB_PASS');
+        // Compatível com CLI: usar $_ENV como fallback
+        $host = $_ENV['DB_HOST'] ?? getenv('DB_HOST') ?: 'localhost';
+        $dbname = $_ENV['DB_NAME'] ?? getenv('DB_NAME');
+        $user = $_ENV['DB_USER'] ?? getenv('DB_USER');
+        $pass = $_ENV['DB_PASS'] ?? getenv('DB_PASS');
         
         if (!$dbname || !$user) {
             throw new Exception('Variáveis de banco de dados não configuradas no .env');

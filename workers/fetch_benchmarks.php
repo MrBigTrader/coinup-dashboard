@@ -25,9 +25,9 @@ try {
     exit(1);
 }
 
-$alpha_vantage_key = getenv('ALPHA_VANTAGE_API_KEY');
-$bcb_api_url = getenv('BCB_API_URL');
-$yahoo_symbol = getenv('YAHOO_FINANCE_BOVESPA_SYMBOL') ?: '^BVSP';
+$alpha_vantage_key = $_ENV['ALPHA_VANTAGE_API_KEY'] ?? getenv('ALPHA_VANTAGE_API_KEY');
+$bcb_api_url = $_ENV['BCB_API_URL'] ?? getenv('BCB_API_URL');
+$yahoo_symbol = $_ENV['YAHOO_FINANCE_BOVESPA_SYMBOL'] ?? getenv('YAHOO_FINANCE_BOVESPA_SYMBOL') ?: '^BVSP';
 
 $updated_count = 0;
 $error_count = 0;
