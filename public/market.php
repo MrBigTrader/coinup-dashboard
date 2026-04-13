@@ -1,8 +1,8 @@
 <?php
 /**
  * Market - Tela de Mercado e Benchmarks
- * Revisão: 2026-04-11-Sidebar
- * Descrição: Exibe benchmarks com layout completo (sidebar + conteúdo).
+ * Revisão: 2026-04-11-Live-Data
+ * Descrição: Exibe benchmarks com dados reais da CoinGecko.
  */
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/auth.php';
@@ -13,6 +13,28 @@ Middleware::requireAuth();
 $auth = Auth::getInstance();
 $user = $auth->getCurrentUser();
 $userRole = $_SESSION['user_role'] ?? 'client';
+
+// Buscar dados do banco
+try {
+    $db = Database::getInstance()->getConnection();
+    $stmt = $db->query("SELECT * FROM token_prices WHERE last_updated >= NOW() - INTERVAL 1 HOUR");
+    $prices = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $prices[$row['token_symbol']] = $row;
+    }
+} catch (Exception $e) {
+    $prices = [];
+}
+
+// Mapeamento de benchmarks para dados reais
+$benchmarks = [
+    'BTC' => ['id' => 'WBTC', 'label' => 'Bitcoin (BTC)', 'source' => 'CoinGecko'],
+    'ETH' => ['id' => 'ETH', 'label' => 'Ethereum (ETH)', 'source' => 'CoinGecko'],
+    'BNB' => ['id' => 'BNB', 'label' => 'BNB (BSC)', 'source' => 'CoinGecko'],
+    'XAU' => ['id' => 'XAUT', 'label' => 'Ouro Digital (XAUT)', 'source' => 'CoinGecko'],
+    'AAVE' => ['id' => 'AAVE', 'label' => 'Aave (AAVE)', 'source' => 'CoinGecko'],
+    'UNI' => ['id' => 'UNI', 'label' => 'Uniswap (UNI)', 'source' => 'CoinGecko'],
+];
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -223,38 +245,20 @@ $userRole = $_SESSION['user_role'] ?? 'client';
             </div>
 
             <div class="card">
-                <h3>Indicadores Globais (Status: Aguardando WP3)</h3>
+                <h3>Indicadores Globais (Atualizados em Tempo Real)</h3>
                 <div class="benchmarks">
+                    <?php foreach ($benchmarks as $key => $bench): 
+                        $p = $prices[$bench['id']] ?? null;
+                        $val = $p ? 'USD $' . number_format($p['price_usd'], 2) : '--';
+                        $change = $p ? number_format($p['change_24h'], 2) . '%' : '';
+                        $color = $p ? ($p['change_24h'] >= 0 ? '#4ade80' : '#f87171') : '#94a3b8';
+                    ?>
                     <div class="bench-card">
-                        <h4>Bitcoin (BTC)</h4>
-                        <div class="bench-val">--</div>
-                        <small>Fonte: CoinGecko</small>
+                        <h4><?= htmlspecialchars($bench['label']) ?></h4>
+                        <div class="bench-val" style="color: <?= $color ?>"><?= $val ?></div>
+                        <small>24h: <?= $change ?> | Fonte: <?= $bench['source'] ?></small>
                     </div>
-                    <div class="bench-card">
-                        <h4>S&P 500</h4>
-                        <div class="bench-val">--</div>
-                        <small>Fonte: Alpha Vantage</small>
-                    </div>
-                    <div class="bench-card">
-                        <h4>Ouro (XAU)</h4>
-                        <div class="bench-val">--</div>
-                        <small>Fonte: Alpha Vantage</small>
-                    </div>
-                    <div class="bench-card">
-                        <h4>CDI (Acumulado)</h4>
-                        <div class="bench-val">--</div>
-                        <small>Fonte: BCB</small>
-                    </div>
-                    <div class="bench-card">
-                        <h4>IBOVESPA</h4>
-                        <div class="bench-val">--</div>
-                        <small>Fonte: Yahoo Finance</small>
-                    </div>
-                    <div class="bench-card">
-                        <h4>T-Bills (10Y)</h4>
-                        <div class="bench-val">--</div>
-                        <small>Fonte: Alpha Vantage</small>
-                    </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
         </main>
