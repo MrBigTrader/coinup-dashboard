@@ -38,23 +38,33 @@ try {
     $db = Database::getInstance()->getConnection();
     $user_id = $auth->getCurrentUserId();
 
-    // Buscar total de patrimônio com cálculo baseado em preços
+    // Buscar total de patrimônio: soma de (saldo * preço) para cada token com saldo positivo
+    // Saldo = soma de valores onde wallet é destino - soma onde wallet é origem
     $stmt = $db->prepare("
         SELECT
-            COUNT(DISTINCT w.id) as wallet_count,
-            COALESCE(SUM(
-                CASE 
-                    WHEN tp.price_usd IS NOT NULL THEN t.value * tp.price_usd
-                    ELSE 0
-                END
-            ), 0) as total_value_usd
-        FROM wallets w
-        LEFT JOIN transactions_cache t ON w.id = t.wallet_id
-            AND t.transaction_type IN ('transfer', 'swap', 'deposit')
-        LEFT JOIN token_prices tp ON t.token_symbol = tp.token_symbol
-        WHERE w.user_id = ? AND w.is_active = 1
+            (SELECT COUNT(DISTINCT id) FROM wallets WHERE user_id = ? AND is_active = 1) as wallet_count,
+            COALESCE(SUM(token_balance.current_balance * tp.price_usd), 0) as total_value_usd
+        FROM (
+            SELECT
+                wallet_id,
+                token_symbol,
+                SUM(
+                    CASE
+                        WHEN LOWER(to_address) = LOWER(address) THEN value
+                        WHEN LOWER(from_address) = LOWER(address) THEN -value
+                        ELSE 0
+                    END
+                ) as current_balance
+            FROM transactions_cache tc
+            JOIN wallets w ON tc.wallet_id = w.id
+            WHERE w.user_id = ? AND w.is_active = 1
+            GROUP BY wallet_id, token_symbol
+            HAVING current_balance > 0
+        ) token_balance
+        JOIN wallets w ON token_balance.wallet_id = w.id
+        LEFT JOIN token_prices tp ON token_balance.token_symbol = tp.token_symbol
     ");
-    $stmt->execute([$user_id]);
+    $stmt->execute([$user_id, $user_id]);
     $summary = $stmt->fetch();
 
     // Buscar preço do ETH para converter USD para BRL (aproximação)
