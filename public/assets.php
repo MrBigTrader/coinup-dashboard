@@ -26,26 +26,23 @@ try {
     $db = Database::getInstance()->getConnection();
     $user_id = $auth->getCurrentUserId();
 
-    // Buscar ativos agrupados por token (com try-catch)
+    // Buscar ativos agrupados por token (usando wallet_balances - saldo real)
     $assets = [];
     try {
         $stmt = $db->prepare("
             SELECT
-                t.token_symbol,
-                t.token_name,
-                t.token_address,
+                wb.token_symbol,
+                wb.token_name,
+                wb.token_address,
                 w.network,
-                COUNT(DISTINCT t.tx_hash) as transaction_count,
-                COALESCE(SUM(t.value), 0) as total_value,
+                wb.balance as total_value,
                 tp.price_usd,
-                (COALESCE(SUM(t.value), 0) * COALESCE(tp.price_usd, 0)) as value_usd
+                COALESCE(wb.balance_usd, wb.balance * COALESCE(tp.price_usd, 0)) as value_usd,
+                (SELECT COUNT(*) FROM transactions_cache tc WHERE tc.wallet_id = w.id AND tc.token_symbol = wb.token_symbol) as transaction_count
             FROM wallets w
-            LEFT JOIN transactions_cache t ON w.id = t.wallet_id
-                AND t.transaction_type IN ('transfer', 'swap', 'deposit')
-                AND t.token_symbol IS NOT NULL
-            LEFT JOIN token_prices tp ON t.token_symbol = tp.token_symbol
-            WHERE w.user_id = ? AND w.is_active = 1
-            GROUP BY t.token_symbol, w.network
+            JOIN wallet_balances wb ON w.id = wb.wallet_id
+            LEFT JOIN token_prices tp ON wb.token_symbol = tp.token_symbol
+            WHERE w.user_id = ? AND w.is_active = 1 AND wb.balance > 0
             ORDER BY value_usd DESC
         ");
         $stmt->execute([$user_id]);
