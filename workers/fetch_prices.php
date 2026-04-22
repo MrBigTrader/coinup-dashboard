@@ -164,6 +164,20 @@ $TOKENS = [
         'category' => 'defi',
         'networks' => ['bnb']
     ],
+
+    // ===== Outros Tokens =====
+    'euro-coin' => [
+        'symbol' => 'EURC',
+        'name' => 'EURC',
+        'category' => 'stablecoin',
+        'networks' => ['base', 'ethereum', 'polygon', 'arbitrum']
+    ],
+    'hex' => [
+        'symbol' => 'HEX',
+        'name' => 'HEX',
+        'category' => 'defi',
+        'networks' => ['ethereum']
+    ]
 ];
 
 // ============================================================
@@ -341,6 +355,92 @@ foreach ($TOKENS as $coingecko_id => $token_info) {
 
     } catch (Exception $e) {
         log_message('ERROR', "  ✗ Erro ao salvar $symbol: " . $e->getMessage());
+        $stats['errors']++;
+    }
+}
+
+// ============================================================
+// PASSO 2.5: Buscar Tokens Customizados via Yahoo Finance
+// ============================================================
+
+$CUSTOM_TOKENS = [
+    'TSMon' => ['ticker' => 'TSM', 'name' => 'Taiwan Semiconductor'],
+    'ASMLon' => ['ticker' => 'ASML', 'name' => 'ASML Holding NV'],
+    'SLVon' => ['ticker' => 'SLV', 'name' => 'iShares Silver Trust']
+];
+
+log_message('INFO', "Buscando " . count($CUSTOM_TOKENS) . " tokens customizados (Ondo/Stocks) via Yahoo Finance...");
+
+// Obter cotação do BRL para converter o preço do Yahoo (que vem em USD)
+$brlRate = 5.0; // Fallback
+try {
+    $brlStmt = $db->query("SELECT price_brl / price_usd FROM token_prices WHERE token_symbol = 'USDT' AND price_usd > 0 LIMIT 1");
+    $dbRate = $brlStmt->fetchColumn();
+    if ($dbRate) $brlRate = (float)$dbRate;
+} catch (Exception $e) {}
+
+foreach ($CUSTOM_TOKENS as $symbol => $data) {
+    $stats['total']++;
+    $ticker = $data['ticker'];
+    log_message('INFO', "Processando $symbol ($ticker via Yahoo Finance)...", true);
+
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/{$ticker}?interval=1d&range=1d";
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_HTTPHEADER => ['User-Agent: Mozilla/5.0']
+    ]);
+    $response = curl_exec($ch);
+    curl_close($ch);
+
+    if ($response) {
+        $json = json_decode($response, true);
+        if (isset($json['chart']['result'][0]['meta']['regularMarketPrice'])) {
+            $price_usd = (float)$json['chart']['result'][0]['meta']['regularMarketPrice'];
+            $price_brl = $price_usd * $brlRate;
+            // Pegar variação se disponível
+            $prevClose = (float)($json['chart']['result'][0]['meta']['chartPreviousClose'] ?? $price_usd);
+            $change_24h = $prevClose > 0 ? (($price_usd - $prevClose) / $prevClose) * 100 : 0;
+
+            if ($dry_run) {
+                log_message('INFO', "  [DRY RUN] USD: $" . number_format($price_usd, 4) . " | BRL: R$ " . number_format($price_brl, 2) . " | 24h: " . number_format($change_24h, 2) . "%");
+                $stats['updated']++;
+                continue;
+            }
+
+            try {
+                $stmt = $db->prepare("
+                    INSERT INTO token_prices (
+                        token_symbol, token_name, coingecko_id, price_usd, price_brl, change_24h, source, last_updated
+                    ) VALUES (
+                        :symbol, :name, 'yahoo_finance', :price_usd, :price_brl, :change_24h, 'yahoo', NOW()
+                    ) ON DUPLICATE KEY UPDATE
+                        price_usd = :price_usd,
+                        price_brl = :price_brl,
+                        change_24h = :change_24h,
+                        source = 'yahoo',
+                        last_updated = NOW()
+                ");
+                $stmt->execute([
+                    ':symbol' => $symbol,
+                    ':name' => $data['name'],
+                    ':price_usd' => $price_usd,
+                    ':price_brl' => $price_brl,
+                    ':change_24h' => $change_24h
+                ]);
+                log_message('INFO', "  ✓ $symbol: USD $" . number_format($price_usd, 4) . " | BRL R$ " . number_format($price_brl, 2) . " | 24h " . number_format($change_24h, 2) . "%");
+                $stats['updated']++;
+            } catch (Exception $e) {
+                log_message('ERROR', "  ✗ Erro ao salvar $symbol: " . $e->getMessage());
+                $stats['errors']++;
+            }
+        } else {
+            log_message('WARN', "  ⚠ Dados inválidos para $ticker no Yahoo Finance");
+            $stats['errors']++;
+        }
+    } else {
+        log_message('WARN', "  ⚠ Falha de conexão com Yahoo Finance para $ticker");
         $stats['errors']++;
     }
 }
