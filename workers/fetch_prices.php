@@ -416,9 +416,9 @@ foreach ($CUSTOM_TOKENS as $symbol => $data) {
                     ) VALUES (
                         :symbol, :name, 'yahoo_finance', :price_usd, :price_brl, :change_24h, 'yahoo', NOW()
                     ) ON DUPLICATE KEY UPDATE
-                        price_usd = :price_usd,
-                        price_brl = :price_brl,
-                        change_24h = :change_24h,
+                        price_usd = VALUES(price_usd),
+                        price_brl = VALUES(price_brl),
+                        change_24h = VALUES(change_24h),
                         source = 'yahoo',
                         last_updated = NOW()
                 ");
