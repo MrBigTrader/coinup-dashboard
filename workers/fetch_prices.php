@@ -446,6 +446,133 @@ foreach ($CUSTOM_TOKENS as $symbol => $data) {
 }
 
 // ============================================================
+// PASSO 2.8: Buscar Tokens Desconhecidos por Contrato
+// ============================================================
+
+log_message('INFO', "Buscando preços de tokens via contrato (CoinGecko)...");
+
+$CG_PLATFORMS = [
+    'ethereum' => 'ethereum',
+    'bnb' => 'binance-smart-chain',
+    'polygon' => 'polygon-pos',
+    'arbitrum' => 'arbitrum-one',
+    'base' => 'base'
+];
+
+try {
+    $stmt = $db->query("
+        SELECT DISTINCT wb.token_address, wb.token_symbol, w.network
+        FROM wallet_balances wb
+        JOIN wallets w ON wb.wallet_id = w.id
+        WHERE wb.token_address IS NOT NULL
+        AND wb.token_address != ''
+    ");
+    $wallet_tokens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $contracts_by_platform = [];
+    $symbol_map = [];
+
+    foreach ($wallet_tokens as $t) {
+        $net = $t['network'];
+        $addr = strtolower($t['token_address']);
+        $sym = strtoupper(trim($t['token_symbol']));
+        
+        // Ignorar se já processado no array principal ou Yahoo
+        if (in_array($sym, array_column($TOKENS, 'symbol')) || isset($CUSTOM_TOKENS[$sym])) {
+            continue;
+        }
+
+        if (isset($CG_PLATFORMS[$net])) {
+            $platform = $CG_PLATFORMS[$net];
+            $contracts_by_platform[$platform][] = $addr;
+            $symbol_map[$addr] = $sym;
+        }
+    }
+
+    foreach ($contracts_by_platform as $platform => $addresses) {
+        $chunks = array_chunk(array_unique($addresses), 30); // Máximo 30 por req
+        
+        foreach ($chunks as $chunk) {
+            $addr_list = implode(',', $chunk);
+            log_message('INFO', "Consultando " . count($chunk) . " contratos na rede $platform...", true);
+            
+            $url = $coingecko_base_url . "/simple/token_price/$platform";
+            $params = http_build_query([
+                'contract_addresses' => $addr_list,
+                'vs_currencies' => 'usd,brl',
+                'include_24hr_change' => 'true'
+            ]);
+            
+            $ch = curl_init("$url?$params");
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_HTTPHEADER => [
+                    'Accept: application/json',
+                    'x-cg-demo-api-key: ' . $coingecko_api_key
+                ]
+            ]);
+            $response = curl_exec($ch);
+            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($http_code === 200 && $response) {
+                $data = json_decode($response, true);
+                if (is_array($data)) {
+                    foreach ($data as $contract => $price_data) {
+                        $contract = strtolower($contract);
+                        if (!isset($symbol_map[$contract])) continue;
+                        
+                        $symbol = $symbol_map[$contract];
+                        $price_usd = (float)($price_data['usd'] ?? 0);
+                        $price_brl = (float)($price_data['brl'] ?? 0);
+                        $change_24h = (float)($price_data['usd_24h_change'] ?? 0);
+                        
+                        if ($price_usd > 0) {
+                            if ($dry_run) {
+                                log_message('INFO', "  [DRY RUN] [Contract] $symbol: $" . number_format($price_usd, 4));
+                                continue;
+                            }
+                            
+                            try {
+                                $insertStmt = $db->prepare("
+                                    INSERT INTO token_prices (
+                                        token_symbol, token_name, coingecko_id, price_usd, price_brl, change_24h, source, last_updated
+                                    ) VALUES (
+                                        :symbol, :symbol, :cg_id, :price_usd, :price_brl, :change_24h, 'coingecko_contract', NOW()
+                                    ) ON DUPLICATE KEY UPDATE
+                                        price_usd = VALUES(price_usd),
+                                        price_brl = VALUES(price_brl),
+                                        change_24h = VALUES(change_24h),
+                                        source = 'coingecko_contract',
+                                        last_updated = NOW()
+                                ");
+                                $insertStmt->execute([
+                                    ':symbol' => $symbol,
+                                    ':cg_id' => "contract_$contract",
+                                    ':price_usd' => $price_usd,
+                                    ':price_brl' => $price_brl,
+                                    ':change_24h' => $change_24h
+                                ]);
+                                log_message('INFO', "  ✓ [Contrato] $symbol: USD $" . number_format($price_usd, 4));
+                                $stats['updated']++;
+                            } catch (Exception $e) {
+                                log_message('ERROR', "  ✗ Erro ao salvar contrato $symbol: " . $e->getMessage());
+                            }
+                        }
+                    }
+                }
+            } else {
+                log_message('WARN', "  ⚠ Falha API CoinGecko para contratos em $platform (HTTP $http_code)");
+            }
+            sleep(2); // Respeitar Rate Limit
+        }
+    }
+} catch (Exception $e) {
+    log_message('ERROR', "Erro ao processar contratos desconhecidos: " . $e->getMessage());
+}
+
+// ============================================================
 // PASSO 3: Relatório Final
 // ============================================================
 
