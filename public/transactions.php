@@ -109,7 +109,7 @@ function getStatusClass($status) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Transactions - CoinUp Premium</title>
-    <link rel="stylesheet" href="/main/public/assets/css/premium.css">
+    <link rel="stylesheet" href="/main/public/assets/css/premium.css?v=<?= time() ?>">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -453,28 +453,47 @@ function getStatusClass($status) {
                     const res = await fetch(`/main/public/api/dca-history.php?token=${token}`);
                     const data = await res.json();
                     
-                    if (data.success && data.price_history && data.price_history.length > 0) {
+                    if (data.success && ((data.dca_history && data.dca_history.length > 0) || (data.price_history && data.price_history.length > 0))) {
                         if (dcaChartInstance) dcaChartInstance.destroy();
                         
-                        // O eixo X será o price_history (preço de mercado diário)
-                        const labels = data.price_history.map(item => item.date.split('-').reverse().slice(0, 2).join('/'));
-                        const marketPrices = data.price_history.map(item => Number(item.price_usd));
+                        // Coletar todas as datas únicas de dca_history e price_history
+                        const dateSet = new Set();
+                        if (data.dca_history) {
+                            data.dca_history.forEach(d => dateSet.add(d.date));
+                        }
+                        if (data.price_history) {
+                            data.price_history.forEach(d => dateSet.add(d.date));
+                        }
                         
-                        // Interpolar DCA para cada dia: o DCA de um dia é o DCA da última transação ocorrida até aquele dia
-                        const dcaValues = data.price_history.map(dayItem => {
-                            const dayDate = dayItem.date;
+                        // Adicionar a data de hoje para garantir que a linha vá até o fim do gráfico
+                        const today = new Date().toISOString().split('T')[0];
+                        dateSet.add(today);
+                        
+                        // Ordenar cronologicamente
+                        const sortedDates = Array.from(dateSet).sort();
+                        
+                        // Labels para o eixo X
+                        const labels = sortedDates.map(dateStr => dateStr.split('-').reverse().slice(0, 2).join('/'));
+                        
+                        // Construir os arrays de valores
+                        const marketPrices = sortedDates.map(dateStr => {
+                            const found = data.price_history ? data.price_history.find(p => p.date === dateStr) : null;
+                            if (found && found.price_usd > 0) return Number(found.price_usd);
+                            if (dateStr === today && data.current_price?.price_usd) return Number(data.current_price.price_usd);
+                            return null;
+                        });
+                        
+                        const dcaValues = sortedDates.map(dateStr => {
                             let currentDca = null;
                             if (data.dca_history && data.dca_history.length > 0) {
-                                // Encontra o DCA mais recente que seja menor ou igual à data do price_history
                                 for (let i = 0; i < data.dca_history.length; i++) {
-                                    if (data.dca_history[i].date <= dayDate) {
+                                    if (data.dca_history[i].date <= dateStr) {
                                         currentDca = Number(data.dca_history[i].avg_price);
                                     } else {
-                                        break; // dca_history está ordenado por data
+                                        break;
                                     }
                                 }
                             }
-                            // Se currentDca for nulo (antes da primeira compra), usa 0 ou null
                             return currentDca !== null ? currentDca : null;
                         });
                         
@@ -490,7 +509,7 @@ function getStatusClass($status) {
                                         borderWidth: 2,
                                         borderDash: [4, 4],
                                         fill: false,
-                                        tension: 0.2,
+                                        tension: 0.1,
                                         pointRadius: 0,
                                         spanGaps: true
                                     },
@@ -501,7 +520,7 @@ function getStatusClass($status) {
                                         backgroundColor: 'rgba(167, 139, 250, 0.1)',
                                         borderWidth: 3,
                                         fill: true,
-                                        tension: 0.2,
+                                        tension: 0.1,
                                         pointRadius: 0,
                                         spanGaps: true
                                     }
