@@ -132,8 +132,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Layout Utilities */
 .dashboard-container {
-    display: grid;
-    grid-template-columns: var(--sidebar-width) 1fr;
+    display: flex;
     min-height: 100vh;
 }
 
