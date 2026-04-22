@@ -246,8 +246,11 @@ try {
                 <div class="glass-panel" style="padding: 24px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
                         <h3 style="font-size: 1.1rem; font-weight: 600;">Evolução Patrimonial</h3>
-                        <div style="display: flex; gap: 8px;">
-                            <span class="badge badge-purple">7D</span>
+                        <div style="display: flex; gap: 8px;" id="chart-period-selector">
+                            <button class="badge period-btn" data-period="7d" style="cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--text-muted);">7D</button>
+                            <button class="badge badge-purple period-btn active" data-period="30d" style="cursor: pointer;">30D</button>
+                            <button class="badge period-btn" data-period="90d" style="cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--text-muted);">90D</button>
+                            <button class="badge period-btn" data-period="all" style="cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--text-muted);">ALL</button>
                         </div>
                     </div>
                     <div style="position: relative; height: 300px; width: 100%;">
@@ -260,6 +263,7 @@ try {
                     <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 16px;">Top Holdings</h3>
                     <div id="holdings-list" class="top-holdings-list">
                         <!-- Loading Skeletons -->
+                        <div class="holding-item"><div class="loading-skeleton"></div></div>
                         <div class="holding-item"><div class="loading-skeleton"></div></div>
                         <div class="holding-item"><div class="loading-skeleton"></div></div>
                         <div class="holding-item"><div class="loading-skeleton"></div></div>
@@ -364,7 +368,7 @@ try {
                     try {
                         if (data.holdings && data.holdings.length > 0) {
                             holdingsContainer.innerHTML = '';
-                            data.holdings.slice(0, 4).forEach(h => {
+                            data.holdings.slice(0, 5).forEach(h => {
                                 const currentUsd = Number(h.current_value_usd) || 0;
                                 const valUsd = usdFormatter.format(currentUsd);
                                 const pnlPercent = Number(h.pnl_percent) || 0;
@@ -397,19 +401,27 @@ try {
 
                     // 3. Renderizar Gráfico Chart.js
                     const chartContainer = document.getElementById('portfolioChart');
-                    try {
-                        if (data.history && data.history.length > 0 && typeof Chart !== 'undefined') {
-                            const ctx = chartContainer.getContext('2d');
-                            
-                            // Preparar gradiente para a linha
-                            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-                            gradient.addColorStop(0, 'rgba(110, 86, 207, 0.5)');   
-                            gradient.addColorStop(1, 'rgba(110, 86, 207, 0.0)');
+                    let portfolioChartInstance = null;
+                    
+                    const renderChart = (historyData) => {
+                        if (!historyData || historyData.length === 0 || typeof Chart === 'undefined') {
+                            chartContainer.parentElement.innerHTML = '<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">Dados históricos insuficientes para gerar o gráfico.</div>';
+                            return;
+                        }
+                        
+                        const ctx = chartContainer.getContext('2d');
+                        if (portfolioChartInstance) {
+                            portfolioChartInstance.destroy();
+                        }
+                        
+                        const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                        gradient.addColorStop(0, 'rgba(110, 86, 207, 0.5)');   
+                        gradient.addColorStop(1, 'rgba(110, 86, 207, 0.0)');
 
-                            const labels = data.history.map(item => item.date.split('-').reverse().slice(0, 2).join('/')); // DD/MM
-                            const values = data.history.map(item => Number(item.total_value_usd) || 0);
+                        const labels = historyData.map(item => item.date.split('-').reverse().slice(0, 2).join('/'));
+                        const values = historyData.map(item => Number(item.total_value_usd) || 0);
 
-                            new Chart(ctx, {
+                        portfolioChartInstance = new Chart(ctx, {
                                 type: 'line',
                                 data: {
                                     labels: labels,
@@ -468,15 +480,47 @@ try {
                                         intersect: false
                                     }
                                 }
-                            });
-                        } else {
-                            chartContainer.parentElement.innerHTML = 
-                                '<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">Dados históricos insuficientes para gerar o gráfico.</div>';
-                        }
+                            }
+                        });
+                    };
+
+                    try {
+                        renderChart(data.history);
                     } catch (e) {
                         console.error('Erro no Chart:', e);
                         chartContainer.parentElement.innerHTML = '<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-red);">Erro ao renderizar gráfico.</div>';
                     }
+
+                    // Configurar botões de período do gráfico
+                    const periodBtns = document.querySelectorAll('.period-btn');
+                    periodBtns.forEach(btn => {
+                        btn.addEventListener('click', async (e) => {
+                            // Atualizar visual dos botões
+                            periodBtns.forEach(b => {
+                                b.classList.remove('badge-purple', 'active');
+                                b.style.border = '1px solid transparent';
+                                b.style.background = 'transparent';
+                                b.style.color = 'var(--text-muted)';
+                            });
+                            const target = e.target;
+                            target.classList.add('badge-purple', 'active');
+                            target.style.border = '';
+                            target.style.background = '';
+                            target.style.color = '';
+
+                            // Buscar novos dados
+                            const period = target.getAttribute('data-period');
+                            try {
+                                const histRes = await fetch(`/main/public/api/portfolio-data.php?section=history&period=${period}`);
+                                const histData = await histRes.json();
+                                if (histData.success && histData.history) {
+                                    renderChart(histData.history);
+                                }
+                            } catch(err) {
+                                console.error('Erro ao buscar histórico:', err);
+                            }
+                        });
+                    });
                 }
             } catch (err) {
                 console.error("Erro ao buscar dados do WP3:", err);
