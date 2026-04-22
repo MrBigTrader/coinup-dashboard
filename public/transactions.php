@@ -71,13 +71,16 @@ try {
     $available_networks = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
     $stmt = $db->prepare("
-        SELECT DISTINCT t.token_symbol 
-        FROM transactions_cache t 
-        JOIN wallets w ON t.wallet_id = w.id 
-        WHERE w.user_id = ? AND t.token_symbol IS NOT NULL
-        ORDER BY t.token_symbol ASC
+        SELECT DISTINCT symbol FROM (
+            SELECT t.token_symbol as symbol FROM transactions_cache t JOIN wallets w ON t.wallet_id = w.id WHERE w.user_id = ? AND t.token_symbol IS NOT NULL
+            UNION
+            SELECT wb.token_symbol as symbol FROM wallet_balances wb JOIN wallets w ON wb.wallet_id = w.id WHERE w.user_id = ? AND wb.token_symbol IS NOT NULL
+        ) as tokens
+        JOIN token_prices tp ON tokens.symbol = tp.token_symbol
+        WHERE tp.price_usd > 0
+        ORDER BY symbol ASC
     ");
-    $stmt->execute([$user_id]);
+    $stmt->execute([$user_id, $user_id]);
     $available_tokens = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
     $transaction_types = ['transfer', 'swap', 'deposit', 'withdraw', 'bridge', 'unknown'];
@@ -231,7 +234,7 @@ function getStatusClass($status) {
                 <!-- Gráfico Consolidado -->
                 <div class="glass-panel" style="padding: 24px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                        <h3 style="font-size: 1.1rem; font-weight: 600;">Evolução de Aportes vs Valor Atual</h3>
+                        <h3 style="font-size: 1.1rem; font-weight: 600;">Evolução do Patrimônio</h3>
                     </div>
                     <div style="position: relative; height: 260px; width: 100%;">
                         <canvas id="accumulatedChart"></canvas>
@@ -389,10 +392,6 @@ function getStatusClass($status) {
                         const labels = data.history.map(item => item.date.split('-').reverse().slice(0, 2).join('/'));
                         const values = data.history.map(item => Number(item.total_value_usd));
                         
-                        // Simulando os "aportes acumulados" como 80% do valor atual só para visualização caso o backend não forneça custo histórico exato ainda
-                        // Numa versão ideal, o history também retorna o total_cost
-                        const costs = values.map(v => v * 0.85);
-
                         new Chart(ctx, {
                             type: 'line',
                             data: {
@@ -405,16 +404,6 @@ function getStatusClass($status) {
                                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                                         borderWidth: 2,
                                         fill: true,
-                                        tension: 0.4,
-                                        pointRadius: 0
-                                    },
-                                    {
-                                        label: 'Custo Estimado (Aportes)',
-                                        data: costs,
-                                        borderColor: '#64748B',
-                                        borderDash: [5, 5],
-                                        borderWidth: 2,
-                                        fill: false,
                                         tension: 0.4,
                                         pointRadius: 0
                                     }
@@ -464,18 +453,30 @@ function getStatusClass($status) {
                     const res = await fetch(`/main/public/api/dca-history.php?token=${token}`);
                     const data = await res.json();
                     
-                    if (data.success && data.dca_history && data.dca_history.length > 0) {
+                    if (data.success && data.price_history && data.price_history.length > 0) {
                         if (dcaChartInstance) dcaChartInstance.destroy();
                         
-                        // Mesclar datas de dca_history e price_history
-                        // Para simplificar, usamos o dca_history como base temporal
-                        const labels = data.dca_history.map(item => item.date.split('-').reverse().slice(0, 2).join('/'));
-                        const dcaValues = data.dca_history.map(item => Number(item.avg_price));
+                        // O eixo X será o price_history (preço de mercado diário)
+                        const labels = data.price_history.map(item => item.date.split('-').reverse().slice(0, 2).join('/'));
+                        const marketPrices = data.price_history.map(item => Number(item.price_usd));
                         
-                        // Simulando preços de mercado ao longo do tempo (DCA line)
-                        // Numa integração perfeita, cruzaríamos com data.price_history
-                        // Aqui apenas pegamos o preço médio vs preço atual interpolado
-                        const currentPrice = Number(data.current_price?.price_usd) || dcaValues[dcaValues.length-1];
+                        // Interpolar DCA para cada dia: o DCA de um dia é o DCA da última transação ocorrida até aquele dia
+                        const dcaValues = data.price_history.map(dayItem => {
+                            const dayDate = dayItem.date;
+                            let currentDca = null;
+                            if (data.dca_history && data.dca_history.length > 0) {
+                                // Encontra o DCA mais recente que seja menor ou igual à data do price_history
+                                for (let i = 0; i < data.dca_history.length; i++) {
+                                    if (data.dca_history[i].date <= dayDate) {
+                                        currentDca = Number(data.dca_history[i].avg_price);
+                                    } else {
+                                        break; // dca_history está ordenado por data
+                                    }
+                                }
+                            }
+                            // Se currentDca for nulo (antes da primeira compra), usa 0 ou null
+                            return currentDca !== null ? currentDca : null;
+                        });
                         
                         dcaChartInstance = new Chart(canvas.getContext('2d'), {
                             type: 'line',
@@ -483,15 +484,26 @@ function getStatusClass($status) {
                                 labels: labels,
                                 datasets: [
                                     {
-                                        label: `Preço Médio (DCA) - ${token}`,
+                                        label: `Mercado (${token})`,
+                                        data: marketPrices,
+                                        borderColor: '#64748B',
+                                        borderWidth: 2,
+                                        borderDash: [4, 4],
+                                        fill: false,
+                                        tension: 0.2,
+                                        pointRadius: 0,
+                                        spanGaps: true
+                                    },
+                                    {
+                                        label: `Seu Preço Médio (DCA)`,
                                         data: dcaValues,
                                         borderColor: '#A78BFA',
                                         backgroundColor: 'rgba(167, 139, 250, 0.1)',
                                         borderWidth: 3,
                                         fill: true,
                                         tension: 0.2,
-                                        pointRadius: 4,
-                                        pointBackgroundColor: '#A78BFA',
+                                        pointRadius: 0,
+                                        spanGaps: true
                                     }
                                 ]
                             },
