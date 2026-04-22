@@ -1,97 +1,59 @@
 <?php
 /**
  * Dashboard do Cliente - CoinUp
- * Visão geral do patrimônio
+ * Visão geral do patrimônio (Premium V2)
  */
-
-// Habilitar log de erros para debug
-error_reporting(E_ALL);
-ini_set('display_errors', 0);
-ini_set('log_errors', 1);
 
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/auth.php';
 require_once dirname(__DIR__) . '/config/middleware.php';
 
-// Requer autenticação
 Middleware::requireAuth();
 
 $auth = Auth::getInstance();
-
-// Verificar se é cliente - se for admin, redireciona
 if ($auth->isAdmin()) {
     header('Location: /main/public/admin.php');
     exit;
 }
-
-// Se não é cliente nem admin, erro
 if (!$auth->isClient()) {
-    // Usuário não tem perfil válido, fazer logout
     $auth->logout();
     header('Location: /main/public/login.php');
     exit;
 }
 
 $user = $auth->getCurrentUser();
+$user_id = $auth->getCurrentUserId();
 
 try {
     $db = Database::getInstance()->getConnection();
-    $user_id = $auth->getCurrentUserId();
 
-    // Buscar total de patrimônio: soma de wallet_balances (saldo real da blockchain)
+    // Buscar carteiras
+    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as wallet_count FROM wallets WHERE user_id = ? AND is_active = 1");
+    $stmt->execute([$user_id]);
+    $wallet_count = $stmt->fetchColumn() ?: 0;
+
+    // Buscar última sincronização real
+    $stmt = $db->prepare("SELECT MAX(last_sync) FROM wallets WHERE user_id = ? AND is_active = 1");
+    $stmt->execute([$user_id]);
+    $last_sync_raw = $stmt->fetchColumn();
+    $last_sync = $last_sync_raw ? date('d/m/Y H:i', strtotime($last_sync_raw)) : 'Aguardando sync';
+
+    // Buscar transações
     $stmt = $db->prepare("
-        SELECT
-            (SELECT COUNT(DISTINCT id) FROM wallets WHERE user_id = ? AND is_active = 1) as wallet_count,
-            COALESCE(SUM(wb.balance_usd), 0) as total_value_usd
-        FROM wallets w
-        JOIN wallet_balances wb ON w.id = wb.wallet_id
-        WHERE w.user_id = ? AND w.is_active = 1
+        SELECT t.*, w.network
+        FROM transactions_cache t
+        JOIN wallets w ON t.wallet_id = w.id
+        WHERE w.user_id = ?
+        ORDER BY t.timestamp DESC
+        LIMIT 5
     ");
-    $stmt->execute([$user_id, $user_id]);
-    $summary = $stmt->fetch();
-
-    // Buscar preço do ETH para converter USD para BRL (aproximação)
-    $total_value_brl = 0;
-    try {
-        $stmt = $db->prepare("SELECT price_brl FROM token_prices WHERE token_symbol = 'ETH' LIMIT 1");
-        $stmt->execute();
-        $eth_price = $stmt->fetch();
-        if ($eth_price && $eth_price['price_brl']) {
-            // Usar taxa de câmbio implícita do ETH
-            $stmt = $db->prepare("SELECT price_usd FROM token_prices WHERE token_symbol = 'ETH' LIMIT 1");
-            $stmt->execute();
-            $eth_usd = $stmt->fetch();
-            if ($eth_usd && $eth_usd['price_usd'] > 0) {
-                $exchange_rate = $eth_price['price_brl'] / $eth_usd['price_usd'];
-                $total_value_brl = $summary['total_value_usd'] * $exchange_rate;
-            }
-        }
-    } catch (Exception $e) {
-        error_log("Erro ao calcular BRL: " . $e->getMessage());
-    }
-
-    // Buscar últimas transações (com verificação de tabela vazia)
-    $recent_transactions = [];
-    try {
-        $stmt = $db->prepare("
-            SELECT t.*, w.network, w.address as wallet_address
-            FROM transactions_cache t
-            JOIN wallets w ON t.wallet_id = w.id
-            WHERE w.user_id = ?
-            ORDER BY t.timestamp DESC
-            LIMIT 5
-        ");
-        $stmt->execute([$user_id]);
-        $recent_transactions = $stmt->fetchAll();
-    } catch (Exception $e) {
-        // Tabela pode não existir ou estar vazia
-        error_log("Erro ao buscar transações: " . $e->getMessage());
-        $recent_transactions = [];
-    }
+    $stmt->execute([$user_id]);
+    $recent_transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
 } catch (Exception $e) {
     error_log("Erro no dashboard: " . $e->getMessage());
-    $summary = ['wallet_count' => 0, 'total_value_usd' => 0];
-    $total_value_brl = 0;
+    $wallet_count = 0;
+    $last_sync = 'Erro ao carregar';
     $recent_transactions = [];
 }
 ?>
@@ -100,406 +62,411 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - CoinUp</title>
-    <link rel="stylesheet" href="/main/assets/css/style.css">
+    <title>Dashboard - CoinUp Premium</title>
+    <link rel="stylesheet" href="/main/public/assets/css/premium.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        .top-holdings-list {
+            margin-top: 16px;
         }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            min-height: 100vh;
-            color: #e2e8f0;
-        }
-
-        .dashboard-container {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: 260px;
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(10px);
-            border-right: 1px solid rgba(255, 255, 255, 0.05);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .logo {
-            padding: 20px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            margin-bottom: 20px;
-        }
-
-        .logo h1 {
-            color: #fff;
-            font-size: 1.8rem;
-            background: linear-gradient(135deg, #a855f7, #3b82f6);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .nav-menu {
-            list-style: none;
-            flex: 1;
-        }
-
-        .nav-menu li {
-            margin-bottom: 8px;
-        }
-
-        .nav-menu a {
+        .holding-item {
             display: flex;
             align-items: center;
-            padding: 12px 16px;
-            color: #94a3b8;
-            text-decoration: none;
-            border-radius: 10px;
-            transition: all 0.3s ease;
-        }
-
-        .nav-menu a:hover,
-        .nav-menu a.active {
-            background: rgba(168, 85, 247, 0.1);
-            color: #a855f7;
-        }
-
-        .nav-menu a span {
-            margin-left: 10px;
-        }
-
-        .user-info {
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .user-info p {
-            font-size: 0.9rem;
-            color: #e2e8f0;
-        }
-
-        .user-info small {
-            color: #64748b;
-        }
-
-        .btn-logout {
-            margin-top: 10px;
-            padding: 8px 16px;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #fca5a5;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 100%;
-            transition: all 0.3s ease;
-        }
-
-        .btn-logout:hover {
-            background: rgba(239, 68, 68, 0.2);
-        }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-            padding: 30px;
-            overflow-y: auto;
-        }
-
-        .header {
-            display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-light);
         }
-
-        .header h2 {
-            color: #fff;
-            font-size: 1.8rem;
+        .holding-item:last-child {
+            border-bottom: none;
         }
-
-        .header p {
-            color: #94a3b8;
-        }
-
-        /* Cards */
-        .cards-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 25px;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-        }
-
-        .card-header {
+        .holding-info {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
+            gap: 12px;
         }
-
-        .card-title {
-            color: #94a3b8;
-            font-size: 0.9rem;
-        }
-
-        .card-icon {
-            font-size: 1.5rem;
-        }
-
-        .card-value {
-            color: #fff;
-            font-size: 2rem;
-            font-weight: 700;
-        }
-
-        .card-change {
-            font-size: 0.85rem;
-            margin-top: 8px;
-        }
-
-        .card-change.positive {
-            color: #4ade80;
-        }
-
-        .card-change.negative {
-            color: #f87171;
-        }
-
-        /* Table */
-        .table-container {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 25px;
-        }
-
-        .table-header {
+        .holding-icon {
+            width: 32px;
+            height: 32px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 50%;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
         }
-
-        .table-header h3 {
-            color: #fff;
-            font-size: 1.2rem;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
-
-        th {
-            color: #94a3b8;
-            font-weight: 500;
-            font-size: 0.85rem;
-        }
-
-        td {
-            color: #e2e8f0;
+        .holding-details h4 {
             font-size: 0.9rem;
+            margin-bottom: 2px;
         }
-
-        tr:hover td {
-            background: rgba(255, 255, 255, 0.02);
-        }
-
-        .badge {
-            padding: 4px 10px;
-            border-radius: 20px;
+        .holding-details span {
             font-size: 0.75rem;
-            font-weight: 600;
+            color: var(--text-muted);
         }
-
-        .badge-ethereum { background: rgba(100, 100, 255, 0.2); color: #a5b4fc; }
-        .badge-bnb { background: rgba(255, 200, 0, 0.2); color: #fde047; }
-        .badge-arbitrum { background: rgba(36, 100, 255, 0.2); color: #60a5fa; }
-        .badge-base { background: rgba(0, 100, 255, 0.2); color: #3b82f6; }
-        .badge-polygon { background: rgba(130, 50, 255, 0.2); color: #a855f7; }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #64748b;
+        .holding-value {
+            text-align: right;
         }
-
-        .empty-state p {
-            margin-top: 10px;
+        .holding-value h4 {
+            font-size: 0.95rem;
+            margin-bottom: 2px;
         }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .dashboard-container {
-                flex-direction: column;
+        .holding-value span {
+            font-size: 0.75rem;
+        }
+        
+        /* Grid Layout Fix */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
             }
-
-            .sidebar {
-                width: 100%;
-                border-right: none;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            }
-
-            .nav-menu {
-                display: flex;
-                overflow-x: auto;
-                gap: 10px;
-            }
-
-            .nav-menu li {
-                margin-bottom: 0;
-            }
+        }
+        
+        .loading-skeleton {
+            background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+            border-radius: 4px;
+            height: 20px;
+            width: 100%;
+        }
+        @keyframes loading {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
         }
     </style>
 </head>
 <body>
     <div class="dashboard-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="logo">
-                <h1>🪙 CoinUp</h1>
+        <!-- Sidebar Reutilizável (Para simplificar no teste, mantida inline) -->
+        <aside class="sidebar glass-panel" style="border-radius: 0; border-right: 1px solid var(--border-light); border-top: none; border-bottom: none; border-left: none; padding: 24px;">
+            <div class="logo" style="margin-bottom: 32px; display: flex; align-items: center; gap: 12px;">
+                <div style="background: linear-gradient(135deg, var(--primary), var(--secondary)); padding: 8px; border-radius: 12px;">
+                    <i data-lucide="gem" color="white" size="24"></i>
+                </div>
+                <h1 class="text-gradient" style="font-size: 1.5rem; font-weight: 700;">CoinUp</h1>
             </div>
 
-            <ul class="nav-menu">
-                <li><a href="/main/public/dashboard.php" class="active"><span>📊 Overview</span></a></li>
-                <li><a href="/main/public/my-wallets.php"><span>🔗 Minhas Carteiras</span></a></li>
-                <li><a href="/main/public/assets.php"><span>💼 Assets</span></a></li>
-                <li><a href="/main/public/transactions.php"><span>📝 Transactions</span></a></li>
-                <li><a href="/main/public/market.php"><span>📈 Market</span></a></li>
+            <ul class="nav-menu" style="list-style: none;">
+                <li style="margin-bottom: 8px;"><a href="/main/public/dashboard.php" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--primary); background: var(--primary-glow); border-radius: var(--radius-md); text-decoration: none; font-weight: 500; transition: var(--transition);"><i data-lucide="layout-dashboard" size="20"></i> Overview</a></li>
+                <li style="margin-bottom: 8px;"><a href="/main/public/my-wallets.php" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--text-secondary); text-decoration: none; transition: var(--transition);"><i data-lucide="wallet" size="20"></i> Carteiras</a></li>
+                <li style="margin-bottom: 8px;"><a href="/main/public/assets.php" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--text-secondary); text-decoration: none; transition: var(--transition);"><i data-lucide="pie-chart" size="20"></i> Assets</a></li>
+                <li style="margin-bottom: 8px;"><a href="/main/public/transactions.php" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--text-secondary); text-decoration: none; transition: var(--transition);"><i data-lucide="arrow-left-right" size="20"></i> Transactions</a></li>
+                <li style="margin-bottom: 8px;"><a href="/main/public/market.php" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--text-secondary); text-decoration: none; transition: var(--transition);"><i data-lucide="trending-up" size="20"></i> Market</a></li>
             </ul>
 
-            <div class="user-info">
-                <p><strong><?= htmlspecialchars($user['name']) ?></strong></p>
-                <small><?= htmlspecialchars($user['email']) ?></small>
-                <a href="/main/public/logout.php" class="btn-logout">Sair</a>
+            <div class="user-info glass-panel" style="margin-top: auto; padding: 16px; border-radius: var(--radius-md);">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--border-light); display: flex; align-items: center; justify-content: center;">
+                        <i data-lucide="user" size="20"></i>
+                    </div>
+                    <div>
+                        <p style="font-weight: 600; font-size: 0.9rem;"><?= htmlspecialchars($user['name']) ?></p>
+                        <p class="text-muted" style="font-size: 0.75rem;"><?= htmlspecialchars($user['email']) ?></p>
+                    </div>
+                </div>
+                <a href="/main/public/logout.php" class="btn-glass" style="display: block; text-align: center; width: 100%; text-decoration: none; font-size: 0.85rem;"><i data-lucide="log-out" size="14" style="vertical-align: middle; margin-right: 6px;"></i> Sair</a>
             </div>
         </aside>
 
         <!-- Main Content -->
         <main class="main-content">
-            <div class="header">
+            <header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;" class="animate-fade-in">
                 <div>
-                    <h2>Visão Geral</h2>
-                    <p>Bem-vindo de volta, <?= htmlspecialchars($user['name']) ?>!</p>
+                    <h2 style="font-size: 1.8rem; margin-bottom: 4px;">Visão Geral do Portfólio</h2>
+                    <p class="text-muted">Acompanhe seu patrimônio em tempo real (Powered by WP3 Data Engine)</p>
+                </div>
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn-glass" onclick="location.reload()"><i data-lucide="refresh-cw" size="16"></i></button>
+                    <a href="/main/public/my-wallets.php" class="btn-primary" style="text-decoration: none; display: inline-block;"><i data-lucide="plus" size="16" style="vertical-align: middle; margin-right: 6px;"></i> Adicionar Wallet</a>
+                </div>
+            </header>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid animate-fade-in delay-1">
+                <div class="stat-card glass-panel">
+                    <div class="stat-title">
+                        <span>Patrimônio Total</span>
+                        <div style="background: rgba(110, 86, 207, 0.2); padding: 8px; border-radius: 8px; color: var(--primary);">
+                            <i data-lucide="dollar-sign" size="20"></i>
+                        </div>
+                    </div>
+                    <div class="stat-value" id="total-usd">
+                        <div class="loading-skeleton" style="width: 150px; height: 36px;"></div>
+                    </div>
+                    <div id="total-brl" class="text-muted" style="font-weight: 500;">
+                        <div class="loading-skeleton" style="width: 100px; margin-top: 8px;"></div>
+                    </div>
+                </div>
+
+                <div class="stat-card glass-panel">
+                    <div class="stat-title">
+                        <span>P&L 24h</span>
+                        <div style="background: rgba(16, 185, 129, 0.2); padding: 8px; border-radius: 8px; color: var(--accent-green);">
+                            <i data-lucide="trending-up" size="20"></i>
+                        </div>
+                    </div>
+                    <div class="stat-value" id="pl-value">
+                        <div class="loading-skeleton" style="width: 120px; height: 36px;"></div>
+                    </div>
+                    <div class="text-muted">
+                        Baseado no snapshot de ontem
+                    </div>
+                </div>
+
+                <div class="stat-card glass-panel">
+                    <div class="stat-title">
+                        <span>Status</span>
+                        <div style="background: rgba(59, 130, 246, 0.2); padding: 8px; border-radius: 8px; color: var(--secondary);">
+                            <i data-lucide="activity" size="20"></i>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 24px; margin-top: 8px;">
+                        <div>
+                            <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 4px;">Carteiras Ativas</p>
+                            <p style="font-size: 1.25rem; font-weight: 600;"><?= $wallet_count ?></p>
+                        </div>
+                        <div>
+                            <p class="text-muted" style="font-size: 0.8rem; margin-bottom: 4px;">Último Sync</p>
+                            <p style="font-size: 1.1rem; font-weight: 600;"><?= $last_sync ?></p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Cards de Resumo -->
-            <div class="cards-grid">
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">Patrimônio Total (USD)</span>
-                        <span class="card-icon">💵</span>
+            <!-- Dashboard Grid: Chart + Top Holdings -->
+            <div class="dashboard-grid animate-fade-in delay-2">
+                <!-- Evolution Chart -->
+                <div class="glass-panel" style="padding: 24px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                        <h3 style="font-size: 1.1rem; font-weight: 600;">Evolução Patrimonial</h3>
+                        <div style="display: flex; gap: 8px;">
+                            <span class="badge badge-purple">7D</span>
+                        </div>
                     </div>
-                    <div class="card-value">
-                        $ <?= number_format($summary['total_value_usd'] ?? 0, 2, ',', '.') ?>
-                    </div>
-                    <div class="card-change positive">
-                        <span>≈ R$ <?= number_format($total_value_brl ?? 0, 2, ',', '.') ?></span>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">Carteiras Ativas</span>
-                        <span class="card-icon">🔗</span>
-                    </div>
-                    <div class="card-value">
-                        <?= $summary['wallet_count'] ?? 0 ?>
-                    </div>
-                    <div class="card-change">
-                        <span>Redes EVM</span>
+                    <div style="position: relative; height: 300px; width: 100%;">
+                        <canvas id="portfolioChart"></canvas>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title">Última Sincronização</span>
-                        <span class="card-icon">🔄</span>
+                <!-- Top Holdings -->
+                <div class="glass-panel" style="padding: 24px;">
+                    <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 16px;">Top Holdings</h3>
+                    <div id="holdings-list" class="top-holdings-list">
+                        <!-- Loading Skeletons -->
+                        <div class="holding-item"><div class="loading-skeleton"></div></div>
+                        <div class="holding-item"><div class="loading-skeleton"></div></div>
+                        <div class="holding-item"><div class="loading-skeleton"></div></div>
+                        <div class="holding-item"><div class="loading-skeleton"></div></div>
                     </div>
-                    <div class="card-value" style="font-size: 1.2rem;">
-                        Em breve
-                    </div>
-                    <div class="card-change">
-                        <span>Aguardando sync</span>
-                    </div>
+                    <a href="/main/public/assets.php" style="display: block; text-align: center; margin-top: 16px; color: var(--primary); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Ver todos os ativos →</a>
                 </div>
             </div>
 
-            <!-- Últimas Transações -->
-            <div class="table-container">
-                <div class="table-header">
-                    <h3>Últimas Transações</h3>
-                    <a href="/main/public/transactions.php" style="color: #a855f7; text-decoration: none; font-size: 0.9rem;">Ver todas →</a>
+            <!-- Recent Transactions Table -->
+            <div class="glass-panel animate-fade-in delay-3" style="padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3 style="font-size: 1.1rem; font-weight: 600;">Últimas Transações</h3>
+                    <a href="/main/public/transactions.php" style="color: var(--primary); text-decoration: none; font-size: 0.9rem; font-weight: 500;">Ver histórico completo →</a>
                 </div>
-
-                <?php if (count($recent_transactions) > 0): ?>
-                    <table>
+                
+                <div class="table-container">
+                    <table class="premium-table">
                         <thead>
                             <tr>
-                                <th>Data</th>
-                                <th>Token</th>
+                                <th>Ativo</th>
                                 <th>Rede</th>
+                                <th>Data</th>
                                 <th>Tipo</th>
-                                <th>Valor</th>
+                                <th style="text-align: right;">Quantidade</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($recent_transactions as $tx): ?>
+                            <?php if (count($recent_transactions) > 0): ?>
+                                <?php foreach ($recent_transactions as $tx): ?>
+                                    <tr>
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 12px;">
+                                                <div style="width: 28px; height: 28px; background: rgba(255,255,255,0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: bold;">
+                                                    <?= substr(htmlspecialchars($tx['token_symbol'] ?? 'U'), 0, 1) ?>
+                                                </div>
+                                                <span style="font-weight: 500;"><?= htmlspecialchars($tx['token_symbol'] ?? 'N/A') ?></span>
+                                            </div>
+                                        </td>
+                                        <td><span class="badge badge-<?= htmlspecialchars($tx['network']) ?>"><?= ucfirst($tx['network']) ?></span></td>
+                                        <td class="text-muted"><?= date('d/m/Y H:i', $tx['timestamp']) ?></td>
+                                        <td><?= ucfirst($tx['transaction_type']) ?></td>
+                                        <td style="text-align: right; font-weight: 500; font-family: monospace; font-size: 1rem;">
+                                            <?= number_format($tx['value'], 6, ',', '.') ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
                                 <tr>
-                                    <td><?= date('d/m/Y H:i', $tx['timestamp']) ?></td>
-                                    <td><?= htmlspecialchars($tx['token_symbol'] ?? 'N/A') ?></td>
-                                    <td>
-                                        <span class="badge badge-<?= htmlspecialchars($tx['network']) ?>">
-                                            <?= ucfirst($tx['network']) ?>
-                                        </span>
+                                    <td colspan="5" style="text-align: center; padding: 48px;">
+                                        <i data-lucide="inbox" size="48" style="color: var(--text-muted); margin-bottom: 16px; opacity: 0.5;"></i>
+                                        <p class="text-muted">Nenhuma transação sincronizada ainda.</p>
                                     </td>
-                                    <td><?= ucfirst($tx['transaction_type']) ?></td>
-                                    <td><?= number_format($tx['value'], 6, ',', '.') ?></td>
                                 </tr>
-                            <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
-                <?php else: ?>
-                    <div class="empty-state">
-                        <p style="font-size: 3rem;">📭</p>
-                        <p>Nenhuma transação encontrada</p>
-                        <small>Adicione uma carteira para começar a sincronizar</small>
-                    </div>
-                <?php endif; ?>
+                </div>
             </div>
         </main>
     </div>
+
+    <!-- Inicializar Ícones -->
+    <script>
+        lucide.createIcons();
+    </script>
+
+    <!-- App Logic (Consumindo a API WP3) -->
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Fetch dados do WP3
+                const response = await fetch('/main/public/api/portfolio-data.php');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const d = data.data;
+                    
+                    // 1. Atualizar Header Stats
+                    const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+                    const brlFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+                    
+                    document.getElementById('total-usd').innerHTML = usdFormatter.format(d.total_value_usd);
+                    document.getElementById('total-brl').innerHTML = `≈ ${brlFormatter.format(d.total_value_brl)}`;
+                    
+                    // P&L
+                    const plElem = document.getElementById('pl-value');
+                    if (d.summary_24h && d.summary_24h.change_usd) {
+                        const change = d.summary_24h.change_usd;
+                        const pct = d.summary_24h.change_pct;
+                        const isPositive = change >= 0;
+                        const colorClass = isPositive ? 'text-green' : 'text-red';
+                        const sign = isPositive ? '+' : '';
+                        
+                        plElem.innerHTML = `<span class="${colorClass}">${sign}${usdFormatter.format(change)} <span style="font-size: 1rem; opacity: 0.8;">(${sign}${pct.toFixed(2)}%)</span></span>`;
+                    } else {
+                        plElem.innerHTML = '<span class="text-muted">Sem dados 24h</span>';
+                    }
+
+                    // 2. Renderizar Top Holdings
+                    const holdingsContainer = document.getElementById('holdings-list');
+                    if (d.holdings && d.holdings.length > 0) {
+                        holdingsContainer.innerHTML = '';
+                        d.holdings.slice(0, 4).forEach(h => {
+                            const valUsd = usdFormatter.format(h.total_usd);
+                            const html = `
+                                <div class="holding-item">
+                                    <div class="holding-info">
+                                        <div class="holding-icon">${h.symbol.charAt(0)}</div>
+                                        <div class="holding-details">
+                                            <h4>${h.symbol}</h4>
+                                            <span>${parseFloat(h.total_amount).toLocaleString(undefined, {maximumFractionDigits:4})} tokens</span>
+                                        </div>
+                                    </div>
+                                    <div class="holding-value">
+                                        <h4>${valUsd}</h4>
+                                        <span class="${h.pnl_pct >= 0 ? 'text-green' : 'text-red'}">${h.pnl_pct >= 0 ? '+' : ''}${h.pnl_pct ? h.pnl_pct.toFixed(2) : '0.00'}%</span>
+                                    </div>
+                                </div>
+                            `;
+                            holdingsContainer.insertAdjacentHTML('beforeend', html);
+                        });
+                    } else {
+                        holdingsContainer.innerHTML = '<p class="text-muted" style="padding: 20px 0;">Nenhum ativo encontrado.</p>';
+                    }
+
+                    // 3. Renderizar Gráfico Chart.js
+                    if (d.history && d.history.length > 0) {
+                        const ctx = document.getElementById('portfolioChart').getContext('2d');
+                        
+                        // Preparar gradiente para a linha
+                        const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                        gradient.addColorStop(0, 'rgba(110, 86, 207, 0.5)');   
+                        gradient.addColorStop(1, 'rgba(110, 86, 207, 0.0)');
+
+                        const labels = d.history.map(item => item.date.split('-').reverse().slice(0, 2).join('/')); // DD/MM
+                        const values = d.history.map(item => parseFloat(item.total_value_usd));
+
+                        new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: labels,
+                                datasets: [{
+                                    label: 'Patrimônio (USD)',
+                                    data: values,
+                                    borderColor: '#A78BFA',
+                                    borderWidth: 3,
+                                    backgroundColor: gradient,
+                                    fill: true,
+                                    pointBackgroundColor: '#6E56CF',
+                                    pointBorderColor: '#FFF',
+                                    pointBorderWidth: 2,
+                                    pointRadius: 4,
+                                    pointHoverRadius: 6,
+                                    tension: 0.4 // Curva suave
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        mode: 'index',
+                                        intersect: false,
+                                        backgroundColor: 'rgba(18, 24, 38, 0.9)',
+                                        titleColor: '#fff',
+                                        bodyColor: '#A78BFA',
+                                        borderColor: 'rgba(255,255,255,0.1)',
+                                        borderWidth: 1,
+                                        padding: 12,
+                                        callbacks: {
+                                            label: function(context) {
+                                                return ' ' + usdFormatter.format(context.parsed.y);
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: {
+                                        grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                                        ticks: { color: '#94A3B8' }
+                                    },
+                                    y: {
+                                        grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                                        ticks: { 
+                                            color: '#94A3B8',
+                                            callback: function(value) { return '$' + value.toLocaleString(); }
+                                        }
+                                    }
+                                },
+                                interaction: {
+                                    mode: 'nearest',
+                                    axis: 'x',
+                                    intersect: false
+                                }
+                            }
+                        });
+                    } else {
+                        document.getElementById('portfolioChart').parentElement.innerHTML = 
+                            '<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">Dados históricos insuficientes para gerar o gráfico.</div>';
+                    }
+                }
+            } catch (err) {
+                console.error("Erro ao buscar dados do WP3:", err);
+            }
+        });
+    </script>
 </body>
 </html>
