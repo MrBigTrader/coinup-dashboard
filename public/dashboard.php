@@ -364,19 +364,20 @@ try {
                     if (data.holdings && data.holdings.length > 0) {
                         holdingsContainer.innerHTML = '';
                         data.holdings.slice(0, 4).forEach(h => {
-                            const valUsd = usdFormatter.format(h.total_usd);
+                            const valUsd = usdFormatter.format(h.current_value_usd || 0);
+                            const pnlPercent = h.pnl_percent || 0;
                             const html = `
                                 <div class="holding-item">
                                     <div class="holding-info">
-                                        <div class="holding-icon">${h.symbol.charAt(0)}</div>
+                                        <div class="holding-icon">${h.token_symbol ? h.token_symbol.charAt(0) : '?'}</div>
                                         <div class="holding-details">
-                                            <h4>${h.symbol}</h4>
-                                            <span>${parseFloat(h.total_amount).toLocaleString(undefined, {maximumFractionDigits:4})} tokens</span>
+                                            <h4>${h.token_symbol}</h4>
+                                            <span>${parseFloat(h.current_balance || 0).toLocaleString(undefined, {maximumFractionDigits:4})} tokens</span>
                                         </div>
                                     </div>
                                     <div class="holding-value">
                                         <h4>${valUsd}</h4>
-                                        <span class="${h.pnl_pct >= 0 ? 'text-green' : 'text-red'}">${h.pnl_pct >= 0 ? '+' : ''}${h.pnl_pct ? h.pnl_pct.toFixed(2) : '0.00'}%</span>
+                                        <span class="${pnlPercent >= 0 ? 'text-green' : 'text-red'}">${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%</span>
                                     </div>
                                 </div>
                             `;
