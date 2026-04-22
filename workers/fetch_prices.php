@@ -539,7 +539,7 @@ try {
                                     INSERT INTO token_prices (
                                         token_symbol, token_name, coingecko_id, price_usd, price_brl, change_24h, source, last_updated
                                     ) VALUES (
-                                        :symbol, :symbol, :cg_id, :price_usd, :price_brl, :change_24h, 'coingecko_contract', NOW()
+                                        :symbol, :name, :cg_id, :price_usd, :price_brl, :change_24h, 'coingecko_contract', NOW()
                                     ) ON DUPLICATE KEY UPDATE
                                         price_usd = VALUES(price_usd),
                                         price_brl = VALUES(price_brl),
@@ -549,6 +549,7 @@ try {
                                 ");
                                 $insertStmt->execute([
                                     ':symbol' => $symbol,
+                                    ':name' => $symbol,
                                     ':cg_id' => "contract_$contract",
                                     ':price_usd' => $price_usd,
                                     ':price_brl' => $price_brl,
