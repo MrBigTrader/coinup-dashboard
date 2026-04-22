@@ -14,12 +14,12 @@ SET @idx_exists = (
     SELECT COUNT(1) FROM INFORMATION_SCHEMA.STATISTICS 
     WHERE TABLE_SCHEMA = DATABASE() 
     AND TABLE_NAME = 'transactions_cache' 
-    AND INDEX_NAME = 'unique_wallet_tx'
+    AND (INDEX_NAME = 'unique_wallet_tx' OR INDEX_NAME = 'unique_tx')
 );
 
 SET @sql = IF(@idx_exists = 0,
-    'ALTER TABLE transactions_cache ADD UNIQUE INDEX unique_wallet_tx (wallet_id, tx_hash(191))',
-    'SELECT "Index unique_wallet_tx already exists" AS info'
+    'ALTER TABLE transactions_cache ADD UNIQUE INDEX unique_wallet_tx (wallet_id, tx_hash)',
+    'SELECT "Index unique_tx already exists" AS info'
 );
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
