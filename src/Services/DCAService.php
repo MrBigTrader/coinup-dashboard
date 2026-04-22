@@ -187,6 +187,7 @@ class DCAService {
         $network = '';
         $firstBuyDate = null;
         $lastBuyDate = null;
+        $avgPrice = 0;
 
         foreach ($transactions as $tx) {
             $walletAddress = strtolower($tx['wallet_address']);
@@ -210,16 +211,23 @@ class DCAService {
                 $buyCount++;
                 $totalQuantityBought += $value;
                 $totalCost += $usdValueAtTx > 0 ? $usdValueAtTx : 0;
+                $avgPrice = $totalQuantityBought > 0 ? ($totalCost / $totalQuantityBought) : 0;
 
                 $txDate = date('Y-m-d', $tx['timestamp']);
                 if ($firstBuyDate === null) $firstBuyDate = $txDate;
                 $lastBuyDate = $txDate;
             } elseif ($isSell && $value > 0) {
                 $sellCount++;
+                $totalQuantityBought -= $value;
+                if ($totalQuantityBought <= 0) {
+                    $totalQuantityBought = 0;
+                    $totalCost = 0;
+                    $avgPrice = 0;
+                } else {
+                    $totalCost = $totalQuantityBought * $avgPrice;
+                }
             }
         }
-
-        $avgPrice = $totalQuantityBought > 0 ? ($totalCost / $totalQuantityBought) : 0;
 
         return [
             'token_name' => $tokenName,
@@ -260,18 +268,40 @@ class DCAService {
         $history = [];
         $runningQuantity = 0;
         $runningCost = 0;
+        $avgPrice = 0;
 
         foreach ($transactions as $tx) {
             $walletAddress = strtolower($tx['wallet_address']);
+            $from = strtolower($tx['from_address']);
             $to = strtolower($tx['to_address']);
             $value = (float)$tx['value'];
             $usdValue = (float)($tx['usd_value_at_tx'] ?? 0);
 
-            if ($to === $walletAddress && $value > 0) {
+            $isBuy = ($to === $walletAddress);
+            $isSell = ($from === $walletAddress);
+
+            if ($isBuy && $value > 0) {
                 $runningQuantity += $value;
                 $runningCost += $usdValue;
-
                 $avgPrice = $runningQuantity > 0 ? ($runningCost / $runningQuantity) : 0;
+
+                $history[] = [
+                    'date' => date('Y-m-d', $tx['timestamp']),
+                    'timestamp' => (int)$tx['timestamp'],
+                    'avg_price' => round($avgPrice, 6),
+                    'total_quantity' => $runningQuantity,
+                    'total_cost' => $runningCost,
+                ];
+            } elseif ($isSell && $value > 0) {
+                $runningQuantity -= $value;
+                if ($runningQuantity <= 0) {
+                    $runningQuantity = 0;
+                    $runningCost = 0;
+                    $avgPrice = 0;
+                } else {
+                    // Custo diminui proporcionalmente à venda para manter o preço médio (DCA) intacto
+                    $runningCost = $runningQuantity * $avgPrice;
+                }
 
                 $history[] = [
                     'date' => date('Y-m-d', $tx['timestamp']),

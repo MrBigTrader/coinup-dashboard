@@ -510,7 +510,8 @@ function getStatusClass($status) {
                                         borderDash: [4, 4],
                                         fill: false,
                                         tension: 0.1,
-                                        pointRadius: 0,
+                                        pointRadius: 3,
+                                        pointHitRadius: 10,
                                         spanGaps: true
                                     },
                                     {
@@ -521,7 +522,8 @@ function getStatusClass($status) {
                                         borderWidth: 3,
                                         fill: true,
                                         tension: 0.1,
-                                        pointRadius: 0,
+                                        pointRadius: 3,
+                                        pointHitRadius: 10,
                                         spanGaps: true
                                     }
                                 ]

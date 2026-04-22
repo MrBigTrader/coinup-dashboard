@@ -246,9 +246,8 @@ h1, h2, h3, h4, h5, h6 {
 
 .main-content {
     padding: 32px;
-    width: 100%;
+    width: calc(100% - var(--sidebar-width));
     max-width: 1400px;
-    margin: 0 auto;
     margin-left: var(--sidebar-width);
 }
 
