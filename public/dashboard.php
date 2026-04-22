@@ -361,107 +361,121 @@ try {
 
                     // 2. Renderizar Top Holdings
                     const holdingsContainer = document.getElementById('holdings-list');
-                    if (data.holdings && data.holdings.length > 0) {
-                        holdingsContainer.innerHTML = '';
-                        data.holdings.slice(0, 4).forEach(h => {
-                            const valUsd = usdFormatter.format(h.current_value_usd || 0);
-                            const pnlPercent = h.pnl_percent || 0;
-                            const html = `
-                                <div class="holding-item">
-                                    <div class="holding-info">
-                                        <div class="holding-icon">${h.token_symbol ? h.token_symbol.charAt(0) : '?'}</div>
-                                        <div class="holding-details">
-                                            <h4>${h.token_symbol}</h4>
-                                            <span>${parseFloat(h.current_balance || 0).toLocaleString(undefined, {maximumFractionDigits:4})} tokens</span>
+                    try {
+                        if (data.holdings && data.holdings.length > 0) {
+                            holdingsContainer.innerHTML = '';
+                            data.holdings.slice(0, 4).forEach(h => {
+                                const currentUsd = Number(h.current_value_usd) || 0;
+                                const valUsd = usdFormatter.format(currentUsd);
+                                const pnlPercent = Number(h.pnl_percent) || 0;
+                                const balance = Number(h.current_balance) || 0;
+                                const symbol = h.token_symbol || '?';
+                                const html = `
+                                    <div class="holding-item">
+                                        <div class="holding-info">
+                                            <div class="holding-icon">${symbol.charAt(0)}</div>
+                                            <div class="holding-details">
+                                                <h4>${symbol}</h4>
+                                                <span>${balance.toLocaleString(undefined, {maximumFractionDigits:4})} tokens</span>
+                                            </div>
+                                        </div>
+                                        <div class="holding-value">
+                                            <h4>${valUsd}</h4>
+                                            <span class="${pnlPercent >= 0 ? 'text-green' : 'text-red'}">${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%</span>
                                         </div>
                                     </div>
-                                    <div class="holding-value">
-                                        <h4>${valUsd}</h4>
-                                        <span class="${pnlPercent >= 0 ? 'text-green' : 'text-red'}">${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%</span>
-                                    </div>
-                                </div>
-                            `;
-                            holdingsContainer.insertAdjacentHTML('beforeend', html);
-                        });
-                    } else {
-                        holdingsContainer.innerHTML = '<p class="text-muted" style="padding: 20px 0;">Nenhum ativo encontrado.</p>';
+                                `;
+                                holdingsContainer.insertAdjacentHTML('beforeend', html);
+                            });
+                        } else {
+                            holdingsContainer.innerHTML = '<p class="text-muted" style="padding: 20px 0; text-align: center;">Nenhum ativo encontrado.</p>';
+                        }
+                    } catch (e) {
+                        console.error('Erro nas Holdings:', e);
+                        holdingsContainer.innerHTML = '<p class="text-red" style="padding: 20px 0;">Erro ao processar ativos.</p>';
                     }
 
                     // 3. Renderizar Gráfico Chart.js
-                    if (data.history && data.history.length > 0) {
-                        const ctx = document.getElementById('portfolioChart').getContext('2d');
-                        
-                        // Preparar gradiente para a linha
-                        const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-                        gradient.addColorStop(0, 'rgba(110, 86, 207, 0.5)');   
-                        gradient.addColorStop(1, 'rgba(110, 86, 207, 0.0)');
+                    const chartContainer = document.getElementById('portfolioChart');
+                    try {
+                        if (data.history && data.history.length > 0 && typeof Chart !== 'undefined') {
+                            const ctx = chartContainer.getContext('2d');
+                            
+                            // Preparar gradiente para a linha
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                            gradient.addColorStop(0, 'rgba(110, 86, 207, 0.5)');   
+                            gradient.addColorStop(1, 'rgba(110, 86, 207, 0.0)');
 
-                        const labels = data.history.map(item => item.date.split('-').reverse().slice(0, 2).join('/')); // DD/MM
-                        const values = data.history.map(item => parseFloat(item.total_value_usd));
+                            const labels = data.history.map(item => item.date.split('-').reverse().slice(0, 2).join('/')); // DD/MM
+                            const values = data.history.map(item => Number(item.total_value_usd) || 0);
 
-                        new Chart(ctx, {
-                            type: 'line',
-                            data: {
-                                labels: labels,
-                                datasets: [{
-                                    label: 'Patrimônio (USD)',
-                                    data: values,
-                                    borderColor: '#A78BFA',
-                                    borderWidth: 3,
-                                    backgroundColor: gradient,
-                                    fill: true,
-                                    pointBackgroundColor: '#6E56CF',
-                                    pointBorderColor: '#FFF',
-                                    pointBorderWidth: 2,
-                                    pointRadius: 4,
-                                    pointHoverRadius: 6,
-                                    tension: 0.4 // Curva suave
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { display: false },
-                                    tooltip: {
-                                        mode: 'index',
-                                        intersect: false,
-                                        backgroundColor: 'rgba(18, 24, 38, 0.9)',
-                                        titleColor: '#fff',
-                                        bodyColor: '#A78BFA',
-                                        borderColor: 'rgba(255,255,255,0.1)',
-                                        borderWidth: 1,
-                                        padding: 12,
-                                        callbacks: {
-                                            label: function(context) {
-                                                return ' ' + usdFormatter.format(context.parsed.y);
+                            new Chart(ctx, {
+                                type: 'line',
+                                data: {
+                                    labels: labels,
+                                    datasets: [{
+                                        label: 'Patrimônio (USD)',
+                                        data: values,
+                                        borderColor: '#A78BFA',
+                                        borderWidth: 3,
+                                        backgroundColor: gradient,
+                                        fill: true,
+                                        pointBackgroundColor: '#6E56CF',
+                                        pointBorderColor: '#FFF',
+                                        pointBorderWidth: 2,
+                                        pointRadius: 4,
+                                        pointHoverRadius: 6,
+                                        tension: 0.4 // Curva suave
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: {
+                                        legend: { display: false },
+                                        tooltip: {
+                                            mode: 'index',
+                                            intersect: false,
+                                            backgroundColor: 'rgba(18, 24, 38, 0.9)',
+                                            titleColor: '#fff',
+                                            bodyColor: '#A78BFA',
+                                            borderColor: 'rgba(255,255,255,0.1)',
+                                            borderWidth: 1,
+                                            padding: 12,
+                                            callbacks: {
+                                                label: function(context) {
+                                                    return ' ' + usdFormatter.format(context.parsed.y);
+                                                }
                                             }
                                         }
-                                    }
-                                },
-                                scales: {
-                                    x: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
-                                        ticks: { color: '#94A3B8' }
                                     },
-                                    y: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
-                                        ticks: { 
-                                            color: '#94A3B8',
-                                            callback: function(value) { return '$' + value.toLocaleString(); }
+                                    scales: {
+                                        x: {
+                                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                                            ticks: { color: '#94A3B8' }
+                                        },
+                                        y: {
+                                            grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false },
+                                            ticks: { 
+                                                color: '#94A3B8',
+                                                callback: function(value) { return '$' + value.toLocaleString(); }
+                                            }
                                         }
+                                    },
+                                    interaction: {
+                                        mode: 'nearest',
+                                        axis: 'x',
+                                        intersect: false
                                     }
-                                },
-                                interaction: {
-                                    mode: 'nearest',
-                                    axis: 'x',
-                                    intersect: false
                                 }
-                            }
-                        });
-                    } else {
-                        document.getElementById('portfolioChart').parentElement.innerHTML = 
-                            '<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">Dados históricos insuficientes para gerar o gráfico.</div>';
+                            });
+                        } else {
+                            chartContainer.parentElement.innerHTML = 
+                                '<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">Dados históricos insuficientes para gerar o gráfico.</div>';
+                        }
+                    } catch (e) {
+                        console.error('Erro no Chart:', e);
+                        chartContainer.parentElement.innerHTML = '<div style="height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-red);">Erro ao renderizar gráfico.</div>';
                     }
                 }
             } catch (err) {
