@@ -352,8 +352,8 @@ try {
                     // P&L
                     const plElem = document.getElementById('pl-value');
                     if (snap.change_24h_usd !== null && snap.change_24h_usd !== undefined) {
-                        const change = snap.change_24h_usd;
-                        const pct = snap.change_24h_percent;
+                        const change = Number(snap.change_24h_usd) || 0;
+                        const pct = Number(snap.change_24h_percent) || 0;
                         const isPositive = change >= 0;
                         const colorClass = isPositive ? 'text-green' : 'text-red';
                         const sign = isPositive ? '+' : '';
@@ -480,7 +480,6 @@ try {
                                         intersect: false
                                     }
                                 }
-                            }
                         });
                     };
 
