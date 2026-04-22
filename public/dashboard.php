@@ -33,7 +33,7 @@ try {
     $wallet_count = $stmt->fetchColumn() ?: 0;
 
     // Buscar última sincronização real
-    $stmt = $db->prepare("SELECT MAX(last_sync) FROM wallets WHERE user_id = ? AND is_active = 1");
+    $stmt = $db->prepare("SELECT MAX(ss.last_sync_at) FROM sync_state ss JOIN wallets w ON ss.wallet_id = w.id WHERE w.user_id = ? AND w.is_active = 1");
     $stmt->execute([$user_id]);
     $last_sync_raw = $stmt->fetchColumn();
     $last_sync = $last_sync_raw ? date('d/m/Y H:i', strtotime($last_sync_raw)) : 'Aguardando sync';
@@ -65,7 +65,7 @@ try {
     <title>Dashboard - CoinUp Premium</title>
     <link rel="stylesheet" href="/main/public/assets/css/premium.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         .top-holdings-list {
             margin-top: 16px;
@@ -335,21 +335,21 @@ try {
                 const response = await fetch('/main/public/api/portfolio-data.php');
                 const data = await response.json();
                 
-                if (data.status === 'success') {
-                    const d = data.data;
+                if (data.success) {
+                    const snap = data.snapshot;
                     
                     // 1. Atualizar Header Stats
                     const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
                     const brlFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
                     
-                    document.getElementById('total-usd').innerHTML = usdFormatter.format(d.total_value_usd);
-                    document.getElementById('total-brl').innerHTML = `≈ ${brlFormatter.format(d.total_value_brl)}`;
+                    document.getElementById('total-usd').innerHTML = usdFormatter.format(snap.total_value_usd);
+                    document.getElementById('total-brl').innerHTML = `≈ ${brlFormatter.format(snap.total_value_brl)}`;
                     
                     // P&L
                     const plElem = document.getElementById('pl-value');
-                    if (d.summary_24h && d.summary_24h.change_usd) {
-                        const change = d.summary_24h.change_usd;
-                        const pct = d.summary_24h.change_pct;
+                    if (snap.change_24h_usd !== null && snap.change_24h_usd !== undefined) {
+                        const change = snap.change_24h_usd;
+                        const pct = snap.change_24h_percent;
                         const isPositive = change >= 0;
                         const colorClass = isPositive ? 'text-green' : 'text-red';
                         const sign = isPositive ? '+' : '';
@@ -361,9 +361,9 @@ try {
 
                     // 2. Renderizar Top Holdings
                     const holdingsContainer = document.getElementById('holdings-list');
-                    if (d.holdings && d.holdings.length > 0) {
+                    if (data.holdings && data.holdings.length > 0) {
                         holdingsContainer.innerHTML = '';
-                        d.holdings.slice(0, 4).forEach(h => {
+                        data.holdings.slice(0, 4).forEach(h => {
                             const valUsd = usdFormatter.format(h.total_usd);
                             const html = `
                                 <div class="holding-item">
@@ -387,7 +387,7 @@ try {
                     }
 
                     // 3. Renderizar Gráfico Chart.js
-                    if (d.history && d.history.length > 0) {
+                    if (data.history && data.history.length > 0) {
                         const ctx = document.getElementById('portfolioChart').getContext('2d');
                         
                         // Preparar gradiente para a linha
@@ -395,8 +395,8 @@ try {
                         gradient.addColorStop(0, 'rgba(110, 86, 207, 0.5)');   
                         gradient.addColorStop(1, 'rgba(110, 86, 207, 0.0)');
 
-                        const labels = d.history.map(item => item.date.split('-').reverse().slice(0, 2).join('/')); // DD/MM
-                        const values = d.history.map(item => parseFloat(item.total_value_usd));
+                        const labels = data.history.map(item => item.date.split('-').reverse().slice(0, 2).join('/')); // DD/MM
+                        const values = data.history.map(item => parseFloat(item.total_value_usd));
 
                         new Chart(ctx, {
                             type: 'line',
