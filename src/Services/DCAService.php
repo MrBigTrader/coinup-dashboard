@@ -134,6 +134,39 @@ class DCAService {
             ];
         }
 
+        // Incluir ativos que tem saldo mas não possuem transações válidas (ex: airdrops, transfers mal formatados)
+        foreach ($balances as $symbol => $bal) {
+            if (!isset($tokenTxs[$symbol])) {
+                $currentPrice = $prices[$symbol]['price_usd'] ?? 0;
+                $currentPriceBrl = $prices[$symbol]['price_brl'] ?? 0;
+                $change24h = $prices[$symbol]['change_24h'] ?? 0;
+                $currentBalance = (float)$bal['total_balance'];
+                $currentValueUsd = (float)$bal['total_balance_usd'];
+
+                if ($currentBalance > 0 || $currentValueUsd > 0) {
+                    $results[] = [
+                        'token_symbol' => $symbol,
+                        'token_name' => $symbol,
+                        'network' => 'Variadas',
+                        'avg_price' => 0,
+                        'total_quantity' => $currentBalance,
+                        'total_cost' => 0,
+                        'buy_count' => 0,
+                        'sell_count' => 0,
+                        'current_price' => $currentPrice,
+                        'current_price_brl' => $currentPriceBrl,
+                        'current_balance' => $currentBalance,
+                        'current_value_usd' => $currentValueUsd,
+                        'pnl_absolute' => 0,
+                        'pnl_percent' => 0,
+                        'change_24h' => $change24h,
+                        'first_buy_date' => null,
+                        'last_buy_date' => null,
+                    ];
+                }
+            }
+        }
+
         // Ordenar por valor atual (maior primeiro)
         usort($results, function($a, $b) {
             return $b['current_value_usd'] <=> $a['current_value_usd'];
