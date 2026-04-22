@@ -39,10 +39,17 @@ class TransactionParser {
         $rawValue = $transfer['rawContract']['value'] ?? '0x0';
         $value = self::hexToDecimal($rawValue, $decimals);
         
+        $timestamp = time();
+        if (isset($transfer['metadata']['blockTimestamp'])) {
+            $timestamp = strtotime($transfer['metadata']['blockTimestamp']);
+        } elseif (isset($transfer['blockTimestamp'])) {
+            $timestamp = strtotime($transfer['blockTimestamp']);
+        }
+        
         return [
             'tx_hash' => $transfer['hash'] ?? '',
             'block_number' => isset($transfer['blockNum']) ? hexdec($transfer['blockNum']) : 0,
-            'timestamp' => isset($transfer['blockTimestamp']) ? strtotime($transfer['blockTimestamp']) : time(),
+            'timestamp' => $timestamp,
             'from_address' => strtolower($transfer['from'] ?? ''),
             'to_address' => strtolower($transfer['to'] ?? ''),
             'value' => $value,
@@ -77,11 +84,18 @@ class TransactionParser {
         $symbol = $transfer['asset'] ?? $tokenInfo['address'] ?? '';
         // Limpar símbolo (remover sufixos como .e, .n, etc.)
         $symbol = preg_replace('/\.[a-z]$/', '', $symbol);
+
+        $timestamp = time();
+        if (isset($transfer['metadata']['blockTimestamp'])) {
+            $timestamp = strtotime($transfer['metadata']['blockTimestamp']);
+        } elseif (isset($transfer['blockTimestamp'])) {
+            $timestamp = strtotime($transfer['blockTimestamp']);
+        }
         
         return [
             'tx_hash' => $transfer['hash'] ?? '',
             'block_number' => isset($transfer['blockNum']) ? hexdec($transfer['blockNum']) : 0,
-            'timestamp' => isset($transfer['blockTimestamp']) ? strtotime($transfer['blockTimestamp']) : time(),
+            'timestamp' => $timestamp,
             'from_address' => strtolower($transfer['from'] ?? ''),
             'to_address' => strtolower($transfer['to'] ?? ''),
             'value' => $value,

@@ -336,7 +336,14 @@ function getStatusClass($status) {
                                             <?= date('d/m/Y H:i', $tx['timestamp']) ?>
                                         </td>
                                         <td style="font-family: 'Courier New', monospace; font-weight: 500;">
-                                            <?= number_format($qty, 6, '.', ',') ?>
+                                            <?php
+                                                $formattedQty = number_format($qty, 8, '.', ',');
+                                                // Remove trailing zeros and possible trailing dot if no decimals left
+                                                if (strpos($formattedQty, '.') !== false) {
+                                                    $formattedQty = rtrim(rtrim($formattedQty, '0'), '.');
+                                                }
+                                                echo $formattedQty;
+                                            ?>
                                         </td>
                                         <td>
                                             <?= $valDate > 0 ? '$' . number_format($valDate, 2, '.', ',') : '<span class="text-muted">-</span>' ?>
