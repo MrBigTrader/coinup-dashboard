@@ -233,12 +233,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <p>© 2026 CoinUp. Todos os direitos reservados.</p>
         </div>
 
+        <?php if ((getenv('APP_ENV') ?: ($_ENV['APP_ENV'] ?? 'production')) === 'development'): ?>
         <div class="test-credentials">
             <h4>🔐 Credenciais de Teste</h4>
             <p><strong>Admin:</strong> <code>admin@coinup.com.br</code></p>
             <p><strong>Cliente:</strong> <code>cliente@coinup.com.br</code></p>
             <p><strong>Senha:</strong> <code>CoinUp2026!</code></p>
         </div>
+        <?php endif; ?>
     </div>
 </body>
 </html>

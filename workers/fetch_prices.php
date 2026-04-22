@@ -394,6 +394,76 @@ if ($success_rate < 50) {
 }
 
 log_message('INFO', 'Worker concluído com sucesso!');
+
+// ============================================================
+// PASSO 4: Acumular snapshot diário em price_history
+// ============================================================
+
+log_message('INFO', 'Salvando snapshot diário em price_history...');
+$history_count = 0;
+
+try {
+    $historyStmt = $db->prepare("
+        INSERT IGNORE INTO price_history (token_symbol, price_usd, price_brl, recorded_at, source)
+        SELECT token_symbol, price_usd, price_brl, NOW(), 'coingecko'
+        FROM token_prices
+        WHERE price_usd > 0
+        AND DATE(last_updated) = CURDATE()
+    ");
+    $historyStmt->execute();
+    $history_count = $historyStmt->rowCount();
+    log_message('INFO', "  ✓ Snapshots inseridos em price_history: $history_count");
+} catch (Exception $e) {
+    log_message('WARN', "  ⚠ Erro ao salvar price_history: " . $e->getMessage());
+}
+
+// ============================================================
+// PASSO 5: Atualizar balance_usd em wallet_balances
+// ============================================================
+
+log_message('INFO', 'Atualizando balance_usd em wallet_balances...');
+
+try {
+    $balanceStmt = $db->query("
+        UPDATE wallet_balances wb
+        JOIN token_prices tp ON wb.token_symbol = tp.token_symbol
+        SET wb.balance_usd = wb.balance * tp.price_usd
+        WHERE tp.price_usd > 0
+    ");
+    $updated_balances = $balanceStmt->rowCount();
+    log_message('INFO', "  ✓ Saldos USD atualizados: $updated_balances registros");
+} catch (Exception $e) {
+    log_message('WARN', "  ⚠ Erro ao atualizar balance_usd: " . $e->getMessage());
+}
+
+// ============================================================
+// PASSO 6: Acumular snapshot de patrimônio por usuário em portfolio_history
+// ============================================================
+
+log_message('INFO', 'Salvando snapshot de patrimônio por usuário...');
+
+try {
+    $portfolioStmt = $db->query("
+        INSERT INTO portfolio_history (user_id, date, total_value_usd, total_value_brl)
+        SELECT w.user_id, CURDATE(),
+               COALESCE(SUM(wb.balance_usd), 0),
+               COALESCE(SUM(wb.balance_usd), 0) * COALESCE(
+                   (SELECT tp.price_brl / tp.price_usd FROM token_prices tp WHERE tp.token_symbol = 'ETH' AND tp.price_usd > 0 LIMIT 1),
+                   5.0
+               )
+        FROM wallets w
+        LEFT JOIN wallet_balances wb ON w.id = wb.wallet_id
+        WHERE w.is_active = 1
+        GROUP BY w.user_id
+        ON DUPLICATE KEY UPDATE
+            total_value_usd = VALUES(total_value_usd),
+            total_value_brl = VALUES(total_value_brl)
+    ");
+    log_message('INFO', "  ✓ Portfolio history atualizado: " . $portfolioStmt->rowCount() . " usuários");
+} catch (Exception $e) {
+    log_message('WARN', "  ⚠ Erro ao salvar portfolio_history: " . $e->getMessage());
+}
+
 echo "\n";
 
 exit(0);

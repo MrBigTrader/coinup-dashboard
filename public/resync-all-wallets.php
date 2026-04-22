@@ -24,6 +24,17 @@ if (!$is_cli && (!isset($_SESSION['logged_in']) || $_SESSION['user_role'] !== 'a
     die('Acesso negado.');
 }
 
+// Rate limiting: 1 hour cooldown between resync-all executions
+if (!$is_cli) {
+    $last_resync = $_SESSION['last_resync_all'] ?? 0;
+    if (time() - $last_resync < 3600) {
+        $remaining = 3600 - (time() - $last_resync);
+        $mins = floor($remaining / 60);
+        die("<h1>⏳ Cooldown Ativo</h1><p>Aguarde {$mins} minutos antes de executar novamente.</p><a href='/main/public/admin-sync.php'>← Voltar</a>");
+    }
+    $_SESSION['last_resync_all'] = time();
+}
+
 require_once dirname(__DIR__) . '/src/Blockchain/NetworkConfig.php';
 require_once dirname(__DIR__) . '/src/Blockchain/AlchemyClient.php';
 

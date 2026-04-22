@@ -136,6 +136,34 @@ class Auth {
         return $_SESSION['user_id'] ?? null;
     }
     
+    /**
+     * Gerar token CSRF (ou retornar existente)
+     */
+    public function generateCsrfToken(): string {
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        return $_SESSION['csrf_token'];
+    }
+
+    /**
+     * Verificar token CSRF
+     */
+    public function verifyCsrfToken(?string $token): bool {
+        if (empty($token) || empty($_SESSION['csrf_token'])) {
+            return false;
+        }
+        return hash_equals($_SESSION['csrf_token'], $token);
+    }
+
+    /**
+     * Retornar campo hidden HTML com token CSRF
+     */
+    public function csrfField(): string {
+        $token = $this->generateCsrfToken();
+        return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars($token) . '">';
+    }
+
     // Previne clone
     private function __clone() {}
     

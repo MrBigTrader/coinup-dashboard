@@ -15,13 +15,27 @@ require_once $base_path . '/config/middleware.php';
 
 Middleware::requireAuth();
 
-if ($_SESSION['user_role'] !== 'client') {
+$auth = Auth::getInstance();
+
+// Verificar que é POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'message' => 'Método não permitido']);
+    exit;
+}
 
 // Receber dados
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (!$input) {
     echo json_encode(['success' => false, 'message' => 'Dados inválidos']);
+    exit;
+}
+
+// Verificar CSRF
+if (!$auth->verifyCsrfToken($input['csrf_token'] ?? null)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Token de segurança inválido. Recarregue a página.']);
     exit;
 }
 
@@ -88,6 +102,7 @@ try {
     
 } catch (Exception $e) {
     error_log("Erro ao adicionar carteira: " . $e->getMessage());
-    echo json_encode(['success' => false, 'message' => 'Erro: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => 'Erro interno. Tente novamente.']);
 }
 ?>
+

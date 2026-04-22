@@ -201,13 +201,84 @@ echo "  Benchmarks atualizados: $updated_count\n";
 echo "  Erros: $error_count\n";
 echo "  Tempo total: " . round($duration, 2) . "s\n";
 
+// ============================================
+// 6. Acumular snapshot diário em benchmark_history
+// ============================================
+echo "\n[" . date('Y-m-d H:i:s') . "] Salvando snapshot diário em benchmark_history...\n";
+
+try {
+    $historyStmt = $db->prepare("
+        INSERT IGNORE INTO benchmark_history (symbol, name, value, change_24h, currency, source, date)
+        SELECT symbol, name, value, change_24h, currency, source, CURDATE()
+        FROM benchmarks
+        WHERE value > 0
+    ");
+    $historyStmt->execute();
+    $history_count = $historyStmt->rowCount();
+    echo "  ✓ Snapshots inseridos: $history_count\n";
+} catch (Exception $e) {
+    echo "  ⚠ Erro ao salvar benchmark_history: " . $e->getMessage() . "\n";
+    echo "  (Execute migration 009 se a tabela benchmark_history não existir)\n";
+}
+
+/**
+ * Allowed domains for external API calls (SSRF prevention)
+ */
+function is_allowed_domain(string $url): bool {
+    $allowed_domains = [
+        'www.alphavantage.co',
+        'api.bcb.gov.br',
+        'query1.finance.yahoo.com',
+        'query2.finance.yahoo.com',
+    ];
+    $parsed = parse_url($url);
+    $host = $parsed['host'] ?? '';
+    return in_array($host, $allowed_domains);
+}
+
+/**
+ * Secure HTTP GET using cURL with domain allowlist
+ */
+function secure_fetch(string $url, array $headers = []): ?string {
+    if (!is_allowed_domain($url)) {
+        echo "  [SECURITY] Domínio não permitido: $url\n";
+        return null;
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_HTTPHEADER => array_merge(['Accept: application/json'], $headers),
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($error) {
+        echo "  [CURL ERROR] $error\n";
+        return null;
+    }
+    if ($httpCode !== 200) {
+        echo "  [HTTP $httpCode] " . substr($response, 0, 200) . "\n";
+        return null;
+    }
+
+    return $response;
+}
+
 /**
  * Buscar cotação global do Alpha Vantage
  */
 function fetch_alpha_vantage_global_quote($symbol, $api_key) {
     $url = "https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={$symbol}&apikey={$api_key}";
 
-    $response = file_get_contents($url);
+    $response = secure_fetch($url);
     if (!$response) return false;
 
     $data = json_decode($response, true);
@@ -225,7 +296,7 @@ function fetch_alpha_vantage_global_quote($symbol, $api_key) {
 function fetch_alpha_vantage_commodity($commodity, $api_key) {
     $url = "https://www.alphavantage.co/query?function=COMMODITIES&symbol={$commodity}&apikey={$api_key}";
 
-    $response = file_get_contents($url);
+    $response = secure_fetch($url);
     if (!$response) return false;
 
     $data = json_decode($response, true);
@@ -239,27 +310,47 @@ function fetch_alpha_vantage_commodity($commodity, $api_key) {
 }
 
 /**
- * Buscar taxa do Tesouro Americano
+ * Buscar taxa do Tesouro Americano via Alpha Vantage TREASURY_YIELD
  */
 function fetch_us_treasury_rate($term) {
-    // API simplificada - em produção usar treasury.gov
-    // Aqui retornamos um valor aproximado baseado em dados públicos
-    $rates = [
-        '3month' => 5.33,
-        '6month' => 5.25,
-        '1year' => 5.05,
-        '10year' => 4.28,
-        '30year' => 4.42,
+    global $alpha_vantage_key;
+    
+    $maturity_map = [
+        '3month' => '3month',
+        '2year' => '2year',
+        '5year' => '5year',
+        '10year' => '10year',
+        '30year' => '30year',
     ];
-
-    return $rates[$term] ?? false;
+    
+    $maturity = $maturity_map[$term] ?? '3month';
+    $url = "https://www.alphavantage.co/query?function=TREASURY_YIELD&interval=daily&maturity={$maturity}&apikey={$alpha_vantage_key}";
+    
+    $response = secure_fetch($url);
+    if (!$response) return false;
+    
+    $data = json_decode($response, true);
+    
+    if (isset($data['data']) && !empty($data['data'])) {
+        // Retorna o valor mais recente
+        $latest = $data['data'][0];
+        return (float)($latest['value'] ?? 0);
+    }
+    
+    // Fallback: retornar último valor do banco se API falhar
+    return false;
 }
 
 /**
  * Buscar CDI do Banco Central do Brasil
  */
 function fetch_bcb_cdi($url) {
-    $response = file_get_contents($url);
+    // Garantir que é a URL do BCB
+    if (empty($url)) {
+        $url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json';
+    }
+    
+    $response = secure_fetch($url);
     if (!$response) return false;
 
     $data = json_decode($response, true);

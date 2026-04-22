@@ -10,53 +10,62 @@
  */
 
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/auth.php';
+require_once dirname(__DIR__) . '/config/middleware.php';
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_name('COINUPSESS');
-    session_start();
-}
+Middleware::requireAuth();
+Middleware::requireAdmin();
 
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || $_SESSION['user_role'] !== 'admin') {
-    die('Acesso negado. Apenas administradores.');
-}
+$auth = Auth::getInstance();
+$csrfToken = $auth->generateCsrfToken();
 
-$walletId = isset($_GET['wallet_id']) ? (int)$_GET['wallet_id'] : 0;
+$walletId = isset($_GET['wallet_id']) ? (int)$_GET['wallet_id'] : (isset($_POST['wallet_id']) ? (int)$_POST['wallet_id'] : 0);
 $resetDone = false;
 $deletedTxs = 0;
 $deletedSync = 0;
 
-if ($walletId > 0 && isset($_GET['confirm']) && $_GET['confirm'] === 'yes') {
-    try {
-        $db = Database::getInstance()->getConnection();
-        
-        // Buscar wallet para confirmar
-        $stmt = $db->prepare("SELECT w.*, u.name as user_name FROM wallets w JOIN users u ON w.user_id = u.id WHERE w.id = ?");
-        $stmt->execute([$walletId]);
-        $wallet = $stmt->fetch();
-        
-        if ($wallet) {
-            // Deletar transações da wallet
-            $stmt = $db->prepare("DELETE FROM transactions_cache WHERE wallet_id = ?");
-            $stmt->execute([$walletId]);
-            $deletedTxs = $stmt->rowCount();
+// Only process reset via POST with CSRF
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $walletId > 0 && isset($_POST['confirm']) && $_POST['confirm'] === 'yes') {
+    // Verify CSRF token
+    if (!$auth->verifyCsrfToken($_POST['csrf_token'] ?? null)) {
+        $error = 'Token de segurança inválido. Recarregue a página.';
+    } else {
+        try {
+            $db = Database::getInstance()->getConnection();
             
-            // Deletar sync_state da wallet
-            $stmt = $db->prepare("DELETE FROM sync_state WHERE wallet_id = ?");
+            // Buscar wallet para confirmar
+            $stmt = $db->prepare("SELECT w.*, u.name as user_name FROM wallets w JOIN users u ON w.user_id = u.id WHERE w.id = ?");
             $stmt->execute([$walletId]);
-            $deletedSync = $stmt->rowCount();
+            $wallet = $stmt->fetch();
             
-            // Resetar contadores de erro
-            $stmt = $db->prepare("UPDATE wallets SET sync_error_count = 0, last_sync_attempt = NULL WHERE id = ?");
-            $stmt->execute([$walletId]);
-            
-            $resetDone = true;
+            if ($wallet) {
+                // Deletar transações da wallet
+                $stmt = $db->prepare("DELETE FROM transactions_cache WHERE wallet_id = ?");
+                $stmt->execute([$walletId]);
+                $deletedTxs = $stmt->rowCount();
+                
+                // Deletar sync_state da wallet
+                $stmt = $db->prepare("DELETE FROM sync_state WHERE wallet_id = ?");
+                $stmt->execute([$walletId]);
+                $deletedSync = $stmt->rowCount();
+                
+                // Resetar contadores de erro
+                $stmt = $db->prepare("UPDATE wallets SET sync_error_count = 0, last_sync_attempt = NULL WHERE id = ?");
+                $stmt->execute([$walletId]);
+                
+                // Log the action
+                $db->prepare("INSERT INTO sync_logs (wallet_id, status, message, executed_at) VALUES (?, 'info', 'Sync reset by admin', NOW())")->execute([$walletId]);
+                
+                $resetDone = true;
+            }
+        } catch (Exception $e) {
+            error_log("Reset sync error: " . $e->getMessage());
+            $error = 'Erro interno ao resetar sincronização.';
         }
-    } catch (Exception $e) {
-        $error = "ERRO: " . $e->getMessage();
     }
 }
 
@@ -142,10 +151,13 @@ $wallets = $stmt->fetchAll();
                     <li>❌ Resetar o último bloco sincronizado (permitindo sync desde o bloco 0)</li>
                     <li>🔄 Permitir re-sincronização completa com otimização de primeiro bloco</li>
                 </ul>
-                <p style="margin-top: 20px;">
-                    <a href="?wallet_id=<?= $walletId ?>&confirm=yes" class="btn btn-danger">✅ Sim, Resetar Sync</a>
+                <form method="POST" style="margin-top: 20px; display: inline;">
+                    <input type="hidden" name="wallet_id" value="<?= $walletId ?>">
+                    <input type="hidden" name="confirm" value="yes">
+                    <?= $auth->csrfField() ?>
+                    <button type="submit" class="btn btn-danger">✅ Sim, Resetar Sync</button>
                     <a href="/main/public/sync-manual.php" class="btn btn-secondary">Cancelar</a>
-                </p>
+                </form>
             </div>
         <?php endif; ?>
         

@@ -161,6 +161,8 @@ class SyncService {
         // Buscar todas as transações (nativo + ERC-20)
         $allTransfers = $alchemy->getAllTransfers($address, $fromBlock, $toBlock);
 
+        // Batch insert para performance (100 txs por batch)
+        $batch = [];
         $txCount = 0;
         foreach ($allTransfers as $transfer) {
             // Determinar tipo de transferência
@@ -173,10 +175,16 @@ class SyncService {
                 $txData = TransactionParser::parseTokenTransfer($transfer, $network);
             }
 
-            // Salvar no banco
-            if ($this->saveTransaction($walletId, $txData)) {
-                $txCount++;
+            $batch[] = $txData;
+
+            if (count($batch) >= 100) {
+                $txCount += $this->insertBatch($walletId, $batch);
+                $batch = [];
             }
+        }
+        // Flush remaining
+        if (!empty($batch)) {
+            $txCount += $this->insertBatch($walletId, $batch);
         }
 
         // Atualizar sync_state
@@ -195,17 +203,18 @@ class SyncService {
     }
 
     /**
-     * Salvar transação no banco (idempotente por tx_hash)
+     * Batch insert de transações usando INSERT IGNORE (idempotente via UNIQUE INDEX em wallet_id + tx_hash)
+     *
+     * @param int $walletId ID da carteira
+     * @param array $batch Array de dados de transação
+     * @return int Número de transações inseridas (novas)
      */
-    private function saveTransaction(int $walletId, array $txData): bool {
-        $stmt = $this->db->prepare("SELECT id FROM transactions_cache WHERE wallet_id = ? AND tx_hash = ?");
-        $stmt->execute([$walletId, $txData['tx_hash']]);
-        if ($stmt->fetch()) {
-            return false; // Já existe
-        }
+    private function insertBatch(int $walletId, array $batch): int {
+        if (empty($batch)) return 0;
 
+        $inserted = 0;
         $stmt = $this->db->prepare("
-            INSERT INTO transactions_cache (
+            INSERT IGNORE INTO transactions_cache (
                 wallet_id, tx_hash, block_number, timestamp,
                 from_address, to_address, value,
                 token_address, token_symbol, token_name, token_decimals,
@@ -220,28 +229,35 @@ class SyncService {
             )
         ");
 
-        $stmt->execute([
-            $walletId,
-            $txData['tx_hash'],
-            $txData['block_number'],
-            $txData['timestamp'],
-            $txData['from_address'],
-            $txData['to_address'],
-            $txData['value'],
-            $txData['token_address'],
-            $txData['token_symbol'],
-            $txData['token_name'],
-            $txData['token_decimals'],
-            $txData['transaction_type'],
-            $txData['defi_protocol'],
-            $txData['gas_used'],
-            $txData['gas_price'],
-            $txData['status'],
-            $txData['usd_value_at_tx'],
-            $txData['raw_data'],
-        ]);
+        foreach ($batch as $txData) {
+            $stmt->execute([
+                $walletId,
+                $txData['tx_hash'],
+                $txData['block_number'],
+                $txData['timestamp'],
+                $txData['from_address'],
+                $txData['to_address'],
+                $txData['value'],
+                $txData['token_address'],
+                $txData['token_symbol'],
+                $txData['token_name'],
+                $txData['token_decimals'],
+                $txData['transaction_type'],
+                $txData['defi_protocol'],
+                $txData['gas_used'],
+                $txData['gas_price'],
+                $txData['status'],
+                $txData['usd_value_at_tx'],
+                $txData['raw_data'],
+            ]);
 
-        return true;
+            // rowCount() returns 0 for INSERT IGNORE when row already existed
+            if ($stmt->rowCount() > 0) {
+                $inserted++;
+            }
+        }
+
+        return $inserted;
     }
 
     /**

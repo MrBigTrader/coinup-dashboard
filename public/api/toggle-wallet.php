@@ -14,7 +14,24 @@ require_once $base_path . '/config/middleware.php';
 
 Middleware::requireAuth();
 
+$auth = Auth::getInstance();
+
+// Verificar que é POST
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'message' => 'Método não permitido']);
+    exit;
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
+
+// Verificar CSRF
+if (!$auth->verifyCsrfToken($input['csrf_token'] ?? null)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'Token de segurança inválido. Recarregue a página.']);
+    exit;
+}
+
 $wallet_id = $input['wallet_id'] ?? 0;
 $is_active = $input['is_active'] ?? 1;
 $user_id = $_SESSION['user_id'];
@@ -42,6 +59,6 @@ try {
 
 } catch (Exception $e) {
     error_log("Erro ao atualizar carteira: " . $e->getMessage());
-    echo json_encode(['success' => false, 'message' => 'Erro: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'message' => 'Erro interno. Tente novamente.']);
 }
 ?>

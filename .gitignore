@@ -38,6 +38,11 @@ debug-*.php
 verify-*.php
 check_*.php
 
+# Dangerous utility scripts (NEVER deploy to production)
+public/fix-passwords.php
+public/login-simples.php
+public/resync-all-wallets.php
+
 # Database exports
 *.sql.backup
 dumps/
