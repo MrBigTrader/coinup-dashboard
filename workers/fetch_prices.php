@@ -544,8 +544,8 @@ try {
                                         price_usd = VALUES(price_usd),
                                         price_brl = VALUES(price_brl),
                                         change_24h = VALUES(change_24h),
-                                        source = 'coingecko_contract',
-                                        last_updated = NOW()
+                                        source = VALUES(source),
+                                        last_updated = VALUES(last_updated)
                                 ");
                                 $insertStmt->execute([
                                     ':symbol' => $symbol,
