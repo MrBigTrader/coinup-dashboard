@@ -216,7 +216,7 @@ try {
                         <div class="loading-skeleton" style="width: 120px; height: 36px;"></div>
                     </div>
                     <div class="text-muted">
-                        Baseado no snapshot de ontem
+                        Em tempo real
                     </div>
                 </div>
 

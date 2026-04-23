@@ -56,7 +56,26 @@ try {
 
     // Evolução patrimonial (Chart.js)
     if ($section === 'all' || $section === 'history') {
-        $response['history'] = $portfolio->getPortfolioHistory($userId, $period);
+        $history = $portfolio->getPortfolioHistory($userId, $period);
+        
+        // Injetar valor em tempo real de hoje
+        $currentValueUsd = $portfolio->getTotalValueUsd($userId);
+        $currentValueBrl = $portfolio->getTotalValueBrl($userId);
+        $today = date('Y-m-d');
+        
+        if (empty($history) || end($history)['date'] !== $today) {
+            $history[] = [
+                'date' => $today,
+                'total_value_usd' => $currentValueUsd,
+                'total_value_brl' => $currentValueBrl
+            ];
+        } else {
+            $lastIndex = count($history) - 1;
+            $history[$lastIndex]['total_value_usd'] = $currentValueUsd;
+            $history[$lastIndex]['total_value_brl'] = $currentValueBrl;
+        }
+        
+        $response['history'] = $history;
     }
 
     // P&L e DCA
