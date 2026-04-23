@@ -84,26 +84,57 @@ class PortfolioService {
 
     /**
      * Variação 24h do portfólio
+     * Compara o valor atual (tempo real) com o snapshot de ontem no portfolio_history
      */
     public function getChange24h(int $userId): array {
-        // Calcular baseado na variação 24h ponderada dos tokens que o usuário possui
+        $currentValue = $this->getTotalValueUsd($userId);
+
+        // Pegar snapshot de ontem no portfolio_history
         $stmt = $this->db->prepare("
-            SELECT 
-                SUM(wb.balance_usd) as total_value,
-                SUM(wb.balance_usd * COALESCE(tp.change_24h, 0) / 100) as change_usd
-            FROM wallet_balances wb
-            JOIN wallets w ON wb.wallet_id = w.id
-            LEFT JOIN token_prices tp ON wb.token_symbol = tp.token_symbol
-            WHERE w.user_id = ?
-            AND w.is_active = 1
-            AND wb.balance > 0
+            SELECT total_value_usd
+            FROM portfolio_history
+            WHERE user_id = ?
+            AND date = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+            LIMIT 1
         ");
         $stmt->execute([$userId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $yesterday = $stmt->fetchColumn();
 
-        $totalValue = (float)($row['total_value'] ?? 0);
-        $changeUsd = (float)($row['change_usd'] ?? 0);
-        $changePercent = $totalValue > 0 ? ($changeUsd / $totalValue) * 100 : 0;
+        // Fallback: snapshot mais recente antes de hoje
+        if (!$yesterday) {
+            $stmt = $this->db->prepare("
+                SELECT total_value_usd
+                FROM portfolio_history
+                WHERE user_id = ?
+                AND date < CURDATE()
+                ORDER BY date DESC
+                LIMIT 1
+            ");
+            $stmt->execute([$userId]);
+            $yesterday = $stmt->fetchColumn();
+        }
+
+        if ($yesterday && (float)$yesterday > 0) {
+            $changeUsd = $currentValue - (float)$yesterday;
+            $changePercent = ($changeUsd / (float)$yesterday) * 100;
+        } else {
+            // Sem histórico: usar change_24h ponderada dos tokens como fallback
+            $stmt = $this->db->prepare("
+                SELECT 
+                    SUM(wb.balance_usd) as total_value,
+                    SUM(wb.balance_usd * COALESCE(tp.change_24h, 0) / 100) as change_usd
+                FROM wallet_balances wb
+                JOIN wallets w ON wb.wallet_id = w.id
+                LEFT JOIN token_prices tp ON wb.token_symbol = tp.token_symbol
+                WHERE w.user_id = ?
+                AND w.is_active = 1
+                AND wb.balance > 0
+            ");
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $changeUsd = (float)($row['change_usd'] ?? 0);
+            $changePercent = $currentValue > 0 ? ($changeUsd / $currentValue) * 100 : 0;
+        }
 
         return [
             'usd' => $changeUsd,

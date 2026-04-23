@@ -186,6 +186,13 @@ try {
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="4" style="text-align: right; font-weight: bold; padding-right: 24px;">TOTAL:</td>
+                                <td style="font-weight: bold; color: var(--accent-green);">$ <?= number_format(array_sum(array_column($assets, 'value_usd')), 2, ',', '.') ?></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 <?php else: ?>
                     <div class="empty-state">
