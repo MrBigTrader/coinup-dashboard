@@ -90,6 +90,49 @@ try {
     w_log("[RESULT] Erros: " . $result['errors']);
     w_log("[RESULT] ===========================================");
 
+    // ============================================================
+    // PÓS-SYNC: Recalcular balance_usd com preços atuais
+    // ============================================================
+    w_log("[POST-SYNC] Recalculando balance_usd com preços atuais...");
+    try {
+        $balanceStmt = $db->query("
+            UPDATE wallet_balances wb
+            JOIN token_prices tp ON wb.token_symbol = tp.token_symbol
+            SET wb.balance_usd = wb.balance * tp.price_usd
+            WHERE tp.price_usd > 0
+        ");
+        $updated = $balanceStmt->rowCount();
+        w_log("[POST-SYNC] ✓ $updated saldos USD recalculados.");
+    } catch (Exception $e) {
+        w_log("[POST-SYNC] ⚠ Erro ao recalcular saldos: " . $e->getMessage());
+    }
+
+    // ============================================================
+    // PÓS-SYNC: Atualizar portfolio_history com valor atualizado
+    // ============================================================
+    w_log("[POST-SYNC] Atualizando portfolio_history...");
+    try {
+        $db->query("
+            INSERT INTO portfolio_history (user_id, date, total_value_usd, total_value_brl)
+            SELECT w.user_id, CURDATE(),
+                   COALESCE(SUM(wb.balance_usd), 0),
+                   COALESCE(SUM(wb.balance_usd), 0) * COALESCE(
+                       (SELECT tp.price_brl / tp.price_usd FROM token_prices tp WHERE tp.token_symbol = 'ETH' AND tp.price_usd > 0 LIMIT 1),
+                       5.0
+                   )
+            FROM wallets w
+            LEFT JOIN wallet_balances wb ON w.id = wb.wallet_id
+            WHERE w.is_active = 1
+            GROUP BY w.user_id
+            ON DUPLICATE KEY UPDATE
+                total_value_usd = VALUES(total_value_usd),
+                total_value_brl = VALUES(total_value_brl)
+        ");
+        w_log("[POST-SYNC] ✓ Portfolio history atualizado.");
+    } catch (Exception $e) {
+        w_log("[POST-SYNC] ⚠ Erro ao atualizar portfolio_history: " . $e->getMessage());
+    }
+
 } catch (Exception $e) {
     w_log("[FATAL ERROR] " . $e->getMessage());
     w_log("[TRACE] " . $e->getTraceAsString());

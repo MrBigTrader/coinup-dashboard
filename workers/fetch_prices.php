@@ -90,6 +90,7 @@ $TOKENS = [
         'name' => 'Wrapped Bitcoin',
         'category' => 'wrapper',
         'networks' => ['ethereum', 'arbitrum', 'base', 'polygon'],
+        'aliases' => ['BTCB'], // BTCB na BNB Chain usa o mesmo preço do BTC
         'contracts' => [
             'ethereum' => '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
         ]
@@ -352,6 +353,41 @@ foreach ($TOKENS as $coingecko_id => $token_info) {
 
         log_message('INFO', "  ✓ $symbol: USD $" . number_format($price_usd, 4) . " | BRL R$ " . number_format($price_brl, 2) . " | 24h " . number_format($change_24h, 2) . "%");
         $stats['updated']++;
+
+        // Salvar aliases (ex: BTCB = mesmo preço que WBTC/BTC)
+        if (!empty($token_info['aliases'])) {
+            foreach ($token_info['aliases'] as $alias) {
+                try {
+                    $aliasStmt = $db->prepare("
+                        INSERT INTO token_prices (
+                            token_symbol, token_name, coingecko_id, price_usd, price_brl, change_24h, market_cap_usd, volume_24h, source, last_updated
+                        ) VALUES (
+                            :symbol, :name, :cg_id, :price_usd, :price_brl, :change_24h, :market_cap, :volume, 'coingecko_alias', NOW()
+                        ) ON DUPLICATE KEY UPDATE
+                            price_usd = VALUES(price_usd),
+                            price_brl = VALUES(price_brl),
+                            change_24h = VALUES(change_24h),
+                            market_cap_usd = VALUES(market_cap_usd),
+                            volume_24h = VALUES(volume_24h),
+                            source = 'coingecko_alias',
+                            last_updated = NOW()
+                    ");
+                    $aliasStmt->execute([
+                        ':symbol' => $alias,
+                        ':name' => $alias . ' (' . $token_info['name'] . ')',
+                        ':cg_id' => $coingecko_id . '_alias',
+                        ':price_usd' => $price_usd,
+                        ':price_brl' => $price_brl,
+                        ':change_24h' => $change_24h,
+                        ':market_cap' => $market_cap,
+                        ':volume' => $volume_24h
+                    ]);
+                    log_message('INFO', "  ✓ Alias $alias: USD $" . number_format($price_usd, 4));
+                } catch (Exception $e) {
+                    log_message('WARN', "  ⚠ Erro ao salvar alias $alias: " . $e->getMessage());
+                }
+            }
+        }
 
     } catch (Exception $e) {
         log_message('ERROR', "  ✗ Erro ao salvar $symbol: " . $e->getMessage());
