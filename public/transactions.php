@@ -7,6 +7,7 @@
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/auth.php';
 require_once dirname(__DIR__) . '/config/middleware.php';
+require_once dirname(__DIR__) . '/src/Services/DCAService.php';
 
 Middleware::requireAuth();
 
