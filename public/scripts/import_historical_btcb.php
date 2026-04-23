@@ -87,45 +87,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_files'])) {
         $minTimestamp = $stmt->fetchColumn();
 
         if ($minTimestamp) {
-            $current = $minTimestamp;
-            $today = time();
-            $pricesInserted = 0;
+            $from = $minTimestamp;
+            $to = time();
+            
+            $output .= "Buscando preços em lote (Market Chart Range)... ";
+            $url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range?vs_currency=usd&from=$from&to=$to";
+            
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-            while ($current <= $today) {
-                $dbDate = date('Y-m-d', $current);
-                $dateStr = date('d-m-Y', $current);
-
-                $check = $db->prepare("SELECT COUNT(*) FROM price_history WHERE token_symbol = 'BTCB' AND DATE(recorded_at) = ?");
-                $check->execute([$dbDate]);
-                if ($check->fetchColumn() == 0) {
-                    $url = "https://api.coingecko.com/api/v3/coins/bitcoin/history?date=$dateStr&localization=false";
+            if ($httpCode === 200) {
+                $json = json_decode($response, true);
+                if (isset($json['prices']) && is_array($json['prices'])) {
+                    $pricesInserted = 0;
+                    $output .= count($json['prices']) . " pontos encontrados.\n";
                     
-                    $ch = curl_init($url);
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
-                    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-                    $response = curl_exec($ch);
-                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                    curl_close($ch);
-
-                    if ($httpCode === 200) {
-                        $json = json_decode($response, true);
-                        if (isset($json['market_data']['current_price']['usd'])) {
-                            $priceUsd = $json['market_data']['current_price']['usd'];
-                            $ins = $db->prepare("INSERT INTO price_history (token_symbol, price_usd, recorded_at, source) VALUES ('BTCB', ?, ?, 'backfill')");
-                            $ins->execute([$priceUsd, $dbDate . ' 12:00:00']);
-                            $pricesInserted++;
-                            $output .= "✓ $dbDate: $$priceUsd\n";
+                    // CoinGecko retorna um ponto a cada hora em ranges longos. 
+                    // Vamos pegar apenas 1 ponto por dia (o primeiro de cada dia) para não sobrecarregar o banco.
+                    $processedDates = [];
+                    
+                    $stmt = $db->prepare("INSERT IGNORE INTO price_history (token_symbol, price_usd, recorded_at, source) VALUES ('BTCB', ?, ?, 'backfill_range')");
+                    
+                    foreach ($json['prices'] as $priceData) {
+                        $ts = $priceData[0] / 1000; // ms to s
+                        $price = $priceData[1];
+                        $date = date('Y-m-d', $ts);
+                        
+                        if (!isset($processedDates[$date])) {
+                            $stmt->execute([$price, $date . ' 12:00:00']);
+                            if ($stmt->rowCount() > 0) $pricesInserted++;
+                            $processedDates[$date] = true;
                         }
-                    } elseif ($httpCode === 429) {
-                        $output .= "⚠ Rate limit CoinGecko. Parando backfill por segurança. Execute novamente em instantes.\n";
-                        break;
                     }
-                    usleep(300000); // 0.3s
+                    $output .= "Backfill concluído: $pricesInserted dias novos inseridos.\n";
                 }
-                $current += 86400;
+            } else {
+                $output .= "Falha ao buscar preços em lote (HTTP $httpCode). Resposta: " . substr($response, 0, 100) . "...\n";
             }
-            $output .= "Fim do backfill: $pricesInserted dias novos.\n";
         }
         $output .= "\nPROCEDIMENTO CONCLUÍDO COM SUCESSO!";
 
