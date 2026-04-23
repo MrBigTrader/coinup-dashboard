@@ -1,64 +1,67 @@
 <?php
 /**
- * Script: Import Historical BTCB Transactions and Prices
- * Esse script importa as transações dos CSVs fornecidos e busca preços históricos.
+ * Script: Import Historical BTCB Transactions and Prices (Web Upload)
+ * Versão com interface de upload para facilitar a importação.
  */
 
-require_once dirname(__DIR__) . '/config/database.php';
-require_once dirname(__DIR__) . '/src/Utils/WeiConverter.php';
+require_once dirname(dirname(__DIR__)) . '/config/database.php';
+require_once dirname(dirname(__DIR__)) . '/src/Utils/WeiConverter.php';
+
+session_start();
+// Opcional: Adicionar verificação de auth aqui se necessário
+// require_once dirname(dirname(__DIR__)) . '/config/auth.php';
 
 $walletAddress = '0x83c3D0A2945f914504928a94118Daff5b210b42c';
-$csvFiles = [
-    'c:\Users\Micro\Downloads\export-token-0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c.csv',
-    'c:\Users\Micro\Downloads\export-token-0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c (1).csv'
-];
+$output = "";
 
-try {
-    $db = Database::getInstance()->getConnection();
-    echo "Conectado ao banco.\n";
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csv_files'])) {
+    try {
+        $db = Database::getInstance()->getConnection();
+        $output .= "Conectado ao banco.\n";
 
-    // 1. Achar Wallet ID
-    $stmt = $db->prepare("SELECT id FROM wallets WHERE address = ?");
-    $stmt->execute([$walletAddress]);
-    $walletId = $stmt->fetchColumn();
+        // 1. Achar Wallet ID
+        $stmt = $db->prepare("SELECT id FROM wallets WHERE address = ?");
+        $stmt->execute([$walletAddress]);
+        $walletId = $stmt->fetchColumn();
 
-    if (!$walletId) {
-        die("Erro: Carteira $walletAddress não encontrada no banco.\n");
-    }
-    echo "Wallet ID: $walletId\n";
-
-    // 2. Importar Transações do CSV
-    $importedCount = 0;
-    foreach ($csvFiles as $csvPath) {
-        if (!file_exists($csvPath)) {
-            echo "Aviso: Arquivo $csvPath não encontrado.\n";
-            continue;
+        if (!$walletId) {
+            throw new Exception("Carteira $walletAddress não encontrada no banco.");
         }
+        $output .= "Wallet ID: $walletId\n";
 
-        echo "Processando $csvPath...\n";
-        $handle = fopen($csvPath, "r");
-        $headers = fgetcsv($handle); // Pular cabeçalho
+        $importedCount = 0;
+        $totalFiles = count($_FILES['csv_files']['name']);
 
-        while (($data = fgetcsv($handle)) !== FALSE) {
-            // CSV columns: Transaction Hash, Status, Method, BlockNo, DateTime (UTC), From, From_Nametag, To, To_Nametag, Amount, Value (USD)
-            $txHash = $data[0];
-            $status = strtolower($data[1]) === 'success' ? 'confirmed' : 'failed';
-            $blockNumber = (int)$data[3];
-            $timestamp = strtotime($data[4]);
-            $from = strtolower($data[5]);
-            $to = strtolower($data[7]);
-            $amount = (float)$data[9];
-            $usdValue = (float)str_replace(['$', ','], '', $data[10]);
+        for ($i = 0; $i < $totalFiles; $i++) {
+            $tmpPath = $_FILES['csv_files']['tmp_name'][$i];
+            $fileName = $_FILES['csv_files']['name'][$i];
 
-            // Determinar tipo (simplificado para o import)
-            $type = 'transfer';
-            if (strpos($data[2], 'Swap') !== false) $type = 'swap';
-            if (strpos($data[2], 'Deposit') !== false) $type = 'deposit';
-            if (strpos($data[2], 'Withdraw') !== false) $type = 'withdraw';
-            if (strpos($data[2], 'Supply') !== false) $type = 'deposit';
-            if (strpos($data[2], 'Borrow') !== false) $type = 'deposit';
+            if (empty($tmpPath)) continue;
 
-            try {
+            $output .= "Processando arquivo: $fileName...\n";
+            $handle = fopen($tmpPath, "r");
+            $headers = fgetcsv($handle); // Pular cabeçalho
+
+            while (($data = fgetcsv($handle)) !== FALSE) {
+                if (count($data) < 11) continue;
+
+                $txHash = $data[0];
+                $status = strtolower($data[1]) === 'success' ? 'confirmed' : 'failed';
+                $blockNumber = (int)$data[3];
+                $timestamp = strtotime($data[4]);
+                $from = strtolower($data[5]);
+                $to = strtolower($data[7]);
+                $amount = (float)$data[9];
+                $usdValue = (float)str_replace(['$', ','], '', $data[10]);
+
+                $type = 'transfer';
+                $method = $data[2];
+                if (strpos($method, 'Swap') !== false) $type = 'swap';
+                elseif (strpos($method, 'Deposit') !== false) $type = 'deposit';
+                elseif (strpos($method, 'Withdraw') !== false) $type = 'withdraw';
+                elseif (strpos($method, 'Supply') !== false) $type = 'deposit';
+                elseif (strpos($method, 'Borrow') !== false) $type = 'deposit';
+
                 $stmt = $db->prepare("
                     INSERT IGNORE INTO transactions_cache (
                         wallet_id, tx_hash, block_number, timestamp, from_address, to_address, 
@@ -72,79 +75,95 @@ try {
                     $amount, $type, $usdValue, $status
                 ]);
                 if ($stmt->rowCount() > 0) $importedCount++;
-            } catch (Exception $e) {
-                echo "Erro ao inserir TX $txHash: " . $e->getMessage() . "\n";
             }
+            fclose($handle);
         }
-        fclose($handle);
-    }
-    echo "Importação concluída: $importedCount novas transações inseridas.\n";
+        $output .= "Importação de TXs concluída: $importedCount novos registros.\n";
 
-    // 3. Backfill Price History (BTCB = Bitcoin price)
-    echo "Iniciando backfill de preços históricos (CoinGecko)...\n";
-    
-    // Pegar o range de datas necessário
-    $stmt = $db->query("SELECT MIN(timestamp) FROM transactions_cache WHERE token_symbol = 'BTCB'");
-    $minTimestamp = $stmt->fetchColumn();
-    
-    if ($minTimestamp) {
-        $startDate = date('d-m-Y', $minTimestamp);
-        echo "Buscando preços desde $startDate...\n";
-        
-        // Bitcoin ID na CoinGecko
-        $cgId = 'bitcoin';
-        
-        // Loop por cada dia desde a primeira transação até hoje
-        $current = $minTimestamp;
-        $today = time();
-        $pricesInserted = 0;
-        
-        while ($current <= $today) {
-            $dateStr = date('d-m-Y', $current);
-            $dbDate = date('Y-m-d', $current);
-            
-            // Verificar se já tem preço
-            $check = $db->prepare("SELECT COUNT(*) FROM price_history WHERE token_symbol = 'BTCB' AND DATE(recorded_at) = ?");
-            $check->execute([$dbDate]);
-            if ($check->fetchColumn() == 0) {
-                // Buscar na CoinGecko (Historical data)
-                // Nota: Usar rate limit amigável
-                $url = "https://api.coingecko.com/api/v3/coins/$cgId/history?date=$dateStr&localization=false";
-                
-                $ch = curl_init($url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
-                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-                $response = curl_exec($ch);
-                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
-                
-                if ($httpCode === 200) {
-                    $json = json_decode($response, true);
-                    if (isset($json['market_data']['current_price']['usd'])) {
-                        $priceUsd = $json['market_data']['current_price']['usd'];
-                        
-                        $ins = $db->prepare("INSERT INTO price_history (token_symbol, price_usd, recorded_at, source) VALUES (?, ?, ?, 'backfill')");
-                        $ins->execute(['BTCB', $priceUsd, $dbDate . ' 12:00:00']);
-                        $pricesInserted++;
-                        echo "✓ $dbDate: $$priceUsd\n";
+        // 2. Backfill de Preços
+        $output .= "\nIniciando backfill de preços (Bitcoin via CoinGecko)...\n";
+        $stmt = $db->prepare("SELECT MIN(timestamp) FROM transactions_cache WHERE token_symbol = 'BTCB' AND wallet_id = ?");
+        $stmt->execute([$walletId]);
+        $minTimestamp = $stmt->fetchColumn();
+
+        if ($minTimestamp) {
+            $current = $minTimestamp;
+            $today = time();
+            $pricesInserted = 0;
+
+            while ($current <= $today) {
+                $dbDate = date('Y-m-d', $current);
+                $dateStr = date('d-m-Y', $current);
+
+                $check = $db->prepare("SELECT COUNT(*) FROM price_history WHERE token_symbol = 'BTCB' AND DATE(recorded_at) = ?");
+                $check->execute([$dbDate]);
+                if ($check->fetchColumn() == 0) {
+                    $url = "https://api.coingecko.com/api/v3/coins/bitcoin/history?date=$dateStr&localization=false";
+                    
+                    $ch = curl_init($url);
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0');
+                    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                    $response = curl_exec($ch);
+                    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                    curl_close($ch);
+
+                    if ($httpCode === 200) {
+                        $json = json_decode($response, true);
+                        if (isset($json['market_data']['current_price']['usd'])) {
+                            $priceUsd = $json['market_data']['current_price']['usd'];
+                            $ins = $db->prepare("INSERT INTO price_history (token_symbol, price_usd, recorded_at, source) VALUES ('BTCB', ?, ?, 'backfill')");
+                            $ins->execute([$priceUsd, $dbDate . ' 12:00:00']);
+                            $pricesInserted++;
+                            $output .= "✓ $dbDate: $$priceUsd\n";
+                        }
+                    } elseif ($httpCode === 429) {
+                        $output .= "⚠ Rate limit CoinGecko. Parando backfill por segurança. Execute novamente em instantes.\n";
+                        break;
                     }
-                } else if ($httpCode === 429) {
-                    echo "⚠ Rate limit atingido. Aguardando 60s...\n";
-                    sleep(60);
-                    continue; // Repetir o mesmo dia
-                } else {
-                    echo "✗ Falha ao buscar preço para $dateStr (HTTP $httpCode)\n";
+                    usleep(300000); // 0.3s
                 }
-                
-                usleep(500000); // 0.5s entre reqs para evitar 429
+                $current += 86400;
             }
-            
-            $current += 86400; // Próximo dia
+            $output .= "Fim do backfill: $pricesInserted dias novos.\n";
         }
-        echo "Backfill de preços concluído: $pricesInserted dias inseridos.\n";
-    }
+        $output .= "\nPROCEDIMENTO CONCLUÍDO COM SUCESSO!";
 
-} catch (Exception $e) {
-    echo "ERRO FATAL: " . $e->getMessage() . "\n";
+    } catch (Exception $e) {
+        $output .= "\nERRO: " . $e->getMessage();
+    }
 }
+?>
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Importador Histórico BTCB</title>
+    <style>
+        body { font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 40px; }
+        .card { background: #1e293b; padding: 30px; border-radius: 12px; max-width: 800px; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        h1 { color: #a78bfa; margin-top: 0; }
+        pre { background: #000; padding: 20px; border-radius: 8px; color: #10b981; overflow-x: auto; white-space: pre-wrap; font-size: 13px; border: 1px solid #334155; }
+        .btn { background: #7c3aed; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn:hover { background: #6d28d9; }
+        input[type="file"] { margin: 20px 0; display: block; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Importação Histórica BTCB</h1>
+        <p>Selecione os arquivos CSV de exportação da BSCScan para importar as transações de BTCB e preencher os preços de mercado de 2025/2026.</p>
+        
+        <form method="POST" enctype="multipart/form-data">
+            <input type="file" name="csv_files[]" multiple accept=".csv" required>
+            <button type="submit" class="btn">Iniciar Importação</button>
+        </form>
+
+        <?php if ($output): ?>
+            <h2 style="margin-top: 30px;">Log de Execução:</h2>
+            <pre><?php echo htmlspecialchars($output); ?></pre>
+            <p>✅ Se o log terminou em "SUCESSO", você já pode fechar esta página e atualizar o seu Dashboard.</p>
+        <?php endif; ?>
+    </div>
+</body>
+</html>
