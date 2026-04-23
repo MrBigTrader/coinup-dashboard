@@ -203,6 +203,11 @@ class DCAService {
                 $network = $tx['network'];
             }
 
+            // Ignorar transações DeFi internas (Supply, Deposit, Borrow, Withdraw)
+            if (self::isDeFiInternalAddress($from) || self::isDeFiInternalAddress($to)) {
+                continue;
+            }
+
             // Classificar: BUY (recebeu) ou SELL (enviou)
             $isBuy = ($to === $walletAddress);
             $isSell = ($from === $walletAddress);
@@ -245,6 +250,9 @@ class DCAService {
     /**
      * Obter histórico de DCA para um token específico (para gráfico)
      * Retorna preço médio acumulado ao longo do tempo
+     * 
+     * IMPORTANTE: Exclui transações DeFi internas (Supply/Deposit/Borrow/Withdraw
+     * em Aave, vaults, bridges) que NÃO são compras/vendas reais.
      */
     public function getDCAHistory(int $userId, string $tokenSymbol): array {
         $stmt = $this->db->prepare("
@@ -254,6 +262,8 @@ class DCAService {
                 tc.from_address,
                 tc.to_address,
                 tc.timestamp,
+                tc.transaction_type,
+                tc.defi_protocol,
                 w.address as wallet_address
             FROM transactions_cache tc
             JOIN wallets w ON tc.wallet_id = w.id
@@ -277,6 +287,13 @@ class DCAService {
             $value = (float)$tx['value'];
             $usdValue = (float)($tx['usd_value_at_tx'] ?? 0);
 
+            // Ignorar transações com contratos DeFi conhecidos (não são compras/vendas reais)
+            if (self::isDeFiInternalAddress($from) || self::isDeFiInternalAddress($to)) {
+                // Se a contra-parte é um protocolo DeFi, ignorar completamente
+                // (Supply, Deposit, Borrow, Withdraw, etc.)
+                continue;
+            }
+
             $isBuy = ($to === $walletAddress);
             $isSell = ($from === $walletAddress);
 
@@ -299,7 +316,6 @@ class DCAService {
                     $runningCost = 0;
                     $avgPrice = 0;
                 } else {
-                    // Custo diminui proporcionalmente à venda para manter o preço médio (DCA) intacto
                     $runningCost = $runningQuantity * $avgPrice;
                 }
 
@@ -314,6 +330,35 @@ class DCAService {
         }
 
         return $history;
+    }
+
+    /**
+     * Verificar se um endereço é de um contrato DeFi interno (não conta como compra/venda)
+     * Inclui: Aave, vaults, lending pools, bridges, DEX routers
+     */
+    public static function isDeFiInternalAddress(string $address): bool {
+        $address = strtolower($address);
+        // Lista de contratos DeFi conhecidos (lowercased)
+        $defiContracts = [
+            // Aave V3 (BNB Chain)
+            '0x56a7ddc4e848ebf43845854205ad71d5d5f72d3d', // Aave: aBnbBTCB Token
+            '0x128463a60784c4d3f46c23af3f65ed859ba87974', // Aster: Treasury
+
+            // Lending/Vault contracts
+            '0xd58227f62137b8356ec3b103e67c7d656b60659c', // Lending vault (Deposit/Withdraw)
+            '0xf5042e6ffac5a625d4e7848e0b01373d8eb9e222', // DeFi Multicall/Deposit
+
+            // Relay/Executor (Transactions marked as "Execute")
+            '0xb92fe925dc43a0ecde6c8b1a2709c170ec4fff4f', // Relay/Executor bridge
+
+            // Venus Protocol
+            '0xfd36e2c2a6789db23113685031d7f16329158384', // Venus Comptroller
+
+            // Morpho
+            '0x777777c9898d384f785ee44acfe945efdff5f3e0', // Morpho
+        ];
+
+        return in_array($address, $defiContracts);
     }
 
     /**

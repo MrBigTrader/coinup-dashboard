@@ -165,6 +165,7 @@ function getStatusClass($status) {
         .tx-type-swap { color: #A78BFA; }
         .tx-type-deposit { color: #10B981; }
         .tx-type-withdraw { color: #EF4444; }
+        .tx-type-interno { color: #94A3B8; }
     </style>
 </head>
 <body>
@@ -310,15 +311,24 @@ function getStatusClass($status) {
                                     $valCurrent = $qty * $currentPrice;
                                     $pnl = $valCurrent - $valDate;
                                     
-                                    // P&L só faz sentido se tivermos o valor na data e for > 0
-                                    $showPnl = ($valDate > 0 && $currentPrice > 0);
+                                    $fromAddr = strtolower($tx['from_address'] ?? '');
+                                    $toAddr = strtolower($tx['to_address'] ?? '');
+                                    $isInternal = DCAService::isDeFiInternalAddress($fromAddr) || DCAService::isDeFiInternalAddress($toAddr);
+
+                                    // P&L só faz sentido se tivermos o valor na data e for > 0, e não for movimentação interna
+                                    $showPnl = ($valDate > 0 && $currentPrice > 0 && !$isInternal);
                                     $pnlColor = $pnl >= 0 ? 'text-green' : 'text-red';
                                     $pnlSign = $pnl >= 0 ? '+' : '';
                                     
                                     $txType = strtolower($tx['transaction_type'] ?? 'unknown');
-                                    $iconName = 'arrow-right-left';
-                                    if (str_contains($txType, 'deposit') || str_contains($txType, 'buy')) $iconName = 'arrow-down-to-line';
-                                    if (str_contains($txType, 'withdraw') || str_contains($txType, 'sell')) $iconName = 'arrow-up-from-line';
+                                    if ($isInternal) {
+                                        $txType = 'interno';
+                                        $iconName = 'arrow-right-left';
+                                    } else {
+                                        $iconName = 'arrow-right-left';
+                                        if (str_contains($txType, 'deposit') || str_contains($txType, 'buy')) $iconName = 'arrow-down-to-line';
+                                        if (str_contains($txType, 'withdraw') || str_contains($txType, 'sell')) $iconName = 'arrow-up-from-line';
+                                    }
                                 ?>
                                     <tr>
                                         <td>
